@@ -2,6 +2,7 @@ use cdt::cache;
 use cdt::clean;
 use cdt::conflicts;
 use cdt::scanner;
+use cdt::timeline;
 use cdt::tui;
 
 use clap::{Parser, Subcommand};
@@ -74,6 +75,12 @@ enum Commands {
     },
     /// Detect file conflicts across open worktrees
     Conflicts,
+    /// Chronological view of activity across all worktrees
+    Timeline {
+        /// Maximum number of events to show (default: 25)
+        #[arg(short = 'n', long, default_value = "25")]
+        limit: usize,
+    },
     /// Show one-line summary of workspace status
     Summary,
     /// Print shell function for cd integration
@@ -335,6 +342,19 @@ fn run() -> Result {
                             .arg(&ws.path)
                             .status()?;
                     }
+                }
+            }
+        }
+        Some(Commands::Timeline { limit }) => {
+            let workspaces = load_workspaces(&root, cli.no_cache, cli.time)?;
+            if workspaces.is_empty() {
+                eprintln!("No workspaces found in {}", root.display());
+            } else {
+                let events = timeline::gather_timeline(&workspaces, limit);
+                if events.is_empty() {
+                    eprintln!("No activity found.");
+                } else {
+                    print!("{}", timeline::format_timeline(&events, limit));
                 }
             }
         }
