@@ -32,11 +32,11 @@ Make the listing actually actionable instead of just navigable.
 
 Daily hygiene. Conductor creates worktrees but doesn't clean them up. They pile up fast when you're spinning up 5-10 agents a day.
 
-- [ ] `cdt clean` — interactive: select merged worktrees to remove
-- [ ] `cdt clean --merged` — auto-remove all merged worktrees
-- [ ] `cdt clean --stale 7d` — remove worktrees with no commits in N days
-- [ ] `cdt clean --dry-run` — preview what would be removed
-- [ ] Handles both `git worktree remove` and directory cleanup
+- [x] `cdt clean` — interactive: select merged worktrees to remove
+- [x] `cdt clean --merged` — auto-remove all merged worktrees
+- [x] `cdt clean --stale 7d` — remove worktrees with no commits in N days
+- [x] `cdt clean --dry-run` — preview what would be removed
+- [x] Handles both `git worktree remove` and directory cleanup
 
 ## v0.4 — Quick actions
 

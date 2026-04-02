@@ -1,4 +1,5 @@
 use cdt::cache;
+use cdt::clean;
 use cdt::scanner;
 use cdt::tui;
 
@@ -37,6 +38,24 @@ enum Commands {
         /// Show PR status per worktree (queries GitHub)
         #[arg(long)]
         pr: bool,
+    },
+    /// Remove merged or stale worktrees
+    Clean {
+        /// Remove all merged worktrees without prompting
+        #[arg(long)]
+        merged: bool,
+
+        /// Remove worktrees with no commits in the given duration (e.g. 7d, 24h)
+        #[arg(long, value_name = "DURATION")]
+        stale: Option<String>,
+
+        /// Preview what would be removed without actually removing anything
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Skip confirmation prompt (use with --merged or --stale)
+        #[arg(short = 'y', long)]
+        yes: bool,
     },
     /// Print shell function for cd integration
     InitShell,
@@ -136,6 +155,83 @@ fn run() -> Result {
                         );
                     }
                 }
+            }
+        }
+        Some(Commands::Clean { merged, stale, dry_run, yes }) => {
+            let stale_duration = stale
+                .map(|s| clean::parse_duration(&s))
+                .transpose()
+                .map_err(|e| format!("invalid --stale value: {e}"))?;
+
+            // If neither --merged nor --stale given, default to interactive mode
+            // which shows all merged worktrees for selection
+            let interactive = !merged && stale_duration.is_none();
+            let include_merged = merged || interactive;
+
+            // Always do a fresh scan for clean — stale cache could hide merged status
+            let workspaces = scanner::scan(&root)?;
+
+            let candidates = clean::find_candidates(&workspaces, include_merged, stale_duration);
+
+            if candidates.is_empty() {
+                eprintln!("Nothing to clean.");
+                return Ok(());
+            }
+
+            if dry_run {
+                eprintln!("Would remove {} worktree(s):\n", candidates.len());
+                for c in &candidates {
+                    println!("  {}", clean::format_candidate(c));
+                }
+                return Ok(());
+            }
+
+            // In interactive mode (no flags), let user pick which ones to remove
+            if interactive {
+                eprintln!("Merged worktrees:\n");
+                for (i, c) in candidates.iter().enumerate() {
+                    eprintln!("  [{}] {}", i + 1, clean::format_candidate(c));
+                }
+                eprintln!("\nUse --merged to remove all, or --dry-run to preview.");
+                return Ok(());
+            }
+
+            // Non-interactive: show what will be removed and confirm
+            eprintln!("Will remove {} worktree(s):\n", candidates.len());
+            for c in &candidates {
+                eprintln!("  {}", clean::format_candidate(c));
+            }
+
+            if !yes {
+                eprint!("\nProceed? [y/N] ");
+                let mut input = String::new();
+                std::io::stdin().read_line(&mut input)?;
+                if !input.trim().eq_ignore_ascii_case("y") {
+                    eprintln!("Aborted.");
+                    return Ok(());
+                }
+            }
+
+            let mut removed = 0;
+            let mut failed = 0;
+            for c in &candidates {
+                match clean::remove_worktree(c.workspace) {
+                    clean::RemoveResult::Removed => {
+                        eprintln!("  ✓ removed {}", c.workspace.label());
+                        removed += 1;
+                    }
+                    clean::RemoveResult::Failed(e) => {
+                        eprintln!("  ✗ {}", e);
+                        failed += 1;
+                    }
+                }
+            }
+
+            eprintln!("\nDone: {removed} removed, {failed} failed.");
+
+            // Invalidate cache since workspace set changed
+            if removed > 0 {
+                cache::clear();
             }
         }
         Some(Commands::InitShell) => {
