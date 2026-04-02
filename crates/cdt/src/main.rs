@@ -83,6 +83,8 @@ enum Commands {
     },
     /// Show one-line summary of workspace status
     Summary,
+    /// Jump back to the main git repo from a worktree
+    Root,
     /// Print shell function for cd integration
     InitShell,
     /// Clear the workspace cache
@@ -364,6 +366,39 @@ fn run() -> Result {
                 eprintln!("No workspaces found in {}", root.display());
             } else {
                 println!("{}", scanner::summarize(&workspaces));
+            }
+        }
+        Some(Commands::Root) => {
+            let output = std::process::Command::new("git")
+                .args(["rev-parse", "--git-common-dir"])
+                .output();
+
+            match output {
+                Ok(o) if o.status.success() => {
+                    let git_common = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                    let git_common = PathBuf::from(&git_common);
+                    // Resolve to absolute path (git may return relative like "../.git")
+                    let git_common = if git_common.is_relative() {
+                        std::env::current_dir()?.join(&git_common)
+                    } else {
+                        git_common
+                    };
+                    let git_common = git_common.canonicalize()?;
+
+                    // .git dir -> parent is the repo root
+                    // For bare repos, git-common-dir may be the .git dir itself
+                    let root_dir = if git_common.ends_with(".git") {
+                        git_common.parent().unwrap_or(&git_common).to_path_buf()
+                    } else {
+                        // Bare repo or unusual layout — use as-is
+                        git_common
+                    };
+
+                    print!("{}", root_dir.display());
+                }
+                _ => {
+                    return Err("Not inside a git repository".into());
+                }
             }
         }
         Some(Commands::InitShell) => {
