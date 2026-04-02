@@ -31,3 +31,6 @@ schemars = "1"
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", features = ["NSPasteboard"] }
 objc2-foundation = { version = "0.3", features = ["NSString", "NSArray"] }
+
+[dev-dependencies]
+tempfile = "3.27.0"
