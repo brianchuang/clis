@@ -51,7 +51,7 @@ Do things to worktrees without cd-ing into them.
 The unique value cdt adds: understanding the git layer across your whole fleet.
 
 - [x] **`cdt conflicts`** — diff worktrees against each other to detect overlapping file changes *before* merge time. Conductor creates PRs but doesn't warn you that two agents both modified `auth.rs`
-- [ ] **`cdt timeline`** — git-log-style chronological view across ALL worktrees
+- [x] **`cdt timeline`** — git-log-style chronological view across ALL worktrees
   ```
   14:02  my-app/london   committed "Add JWT refresh token logic"
   13:58  my-app/tokyo    PR #38 CI failed
