@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Workspace {
     pub project: String,
     pub name: String,
@@ -157,13 +157,13 @@ impl Workspace {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct PrInfo {
     pub number: u32,
     pub ci_status: CiStatus,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum CiStatus {
     Pass,
     Fail,
