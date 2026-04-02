@@ -293,6 +293,75 @@ pub fn scan(root: &Path) -> Result<Vec<Workspace>, Box<dyn std::error::Error>> {
     Ok(workspaces)
 }
 
+/// Find a workspace by name. Matches `project/name` (exact) or just `name`
+/// (unique prefix match). Returns `Err` if no match or ambiguous.
+pub fn find_workspace<'a>(
+    workspaces: &'a [Workspace],
+    query: &str,
+) -> Result<&'a Workspace, String> {
+    // Exact match on label (project/name)
+    if let Some(ws) = workspaces.iter().find(|w| w.label() == query) {
+        return Ok(ws);
+    }
+
+    // Match on workspace name alone
+    let matches: Vec<&Workspace> = workspaces
+        .iter()
+        .filter(|w| w.name == query)
+        .collect();
+
+    match matches.len() {
+        0 => Err(format!("no workspace matching '{query}'")),
+        1 => Ok(matches[0]),
+        _ => {
+            let labels: Vec<String> = matches.iter().map(|w| w.label()).collect();
+            Err(format!(
+                "'{query}' is ambiguous, matches: {}. Use project/name to disambiguate.",
+                labels.join(", ")
+            ))
+        }
+    }
+}
+
+/// Build a one-line summary of workspace status counts.
+pub fn summarize(workspaces: &[Workspace]) -> String {
+    let mut open = 0u32;
+    let mut merged = 0u32;
+    let mut dirty = 0u32;
+    let mut unknown = 0u32;
+
+    for ws in workspaces {
+        match ws.merged {
+            Some(true) => merged += 1,
+            Some(false) => open += 1,
+            None => unknown += 1,
+        }
+        if ws.dirty {
+            dirty += 1;
+        }
+    }
+
+    let mut parts = Vec::new();
+    if open > 0 {
+        parts.push(format!("{open} open"));
+    }
+    if merged > 0 {
+        parts.push(format!("{merged} merged"));
+    }
+    if dirty > 0 {
+        parts.push(format!("{dirty} dirty"));
+    }
+    if unknown > 0 {
+        parts.push(format!("{unknown} unknown"));
+    }
+
+    if parts.is_empty() {
+        "No workspaces.".to_string()
+    } else {
+        format!("{} workspace(s): {}", workspaces.len(), parts.join(", "))
+    }
+}
+
 /// Enrich workspaces with PR info by querying `gh` once per project.
 pub fn attach_pr_info(workspaces: &mut [Workspace]) {
     // Group by project to avoid redundant gh calls

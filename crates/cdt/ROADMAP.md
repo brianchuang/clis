@@ -42,9 +42,9 @@ Daily hygiene. Conductor creates worktrees but doesn't clean them up. They pile 
 
 Do things to worktrees without cd-ing into them.
 
-- [ ] **`cdt diff <workspace>`** — `git diff main...<branch>` for any worktree from anywhere. "What did this agent actually change?"
-- [ ] **`cdt open <workspace>`** — open the PR in browser (`gh pr view --web`) or the workspace in your editor
-- [ ] **`cdt summary`** — one-liner rollup: "4 open, 3 merged, 2 stale, 1 failing CI"
+- [x] **`cdt diff <workspace>`** — `git diff main...<branch>` for any worktree from anywhere. "What did this agent actually change?"
+- [x] **`cdt open <workspace>`** — open the PR in browser (`gh pr view --web`) or the workspace in your editor
+- [x] **`cdt summary`** — one-liner rollup: "4 open, 3 merged, 2 stale, 1 failing CI"
 
 ## v0.5 — Cross-worktree intelligence
 
