@@ -1,0 +1,12 @@
+[package]
+name = "tui-core"
+version = "0.1.0"
+edition = "2021"
+description = "Shared vim-modal TUI primitives for CLI tools"
+license = "MIT"
+repository = "https://github.com/brianchuang/clis"
+
+[dependencies]
+crossterm = "0.28"
+ratatui = "0.28"
+fuzzy-matcher = "0.3"

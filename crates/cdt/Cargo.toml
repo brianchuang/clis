@@ -1,0 +1,20 @@
+[package]
+name = "cdt"
+version = "0.1.0"
+edition = "2021"
+description = "Fast terminal companion for Conductor workspaces — navigate, inspect, and clean up multi-agent worktrees"
+license = "MIT"
+repository = "https://github.com/brianchuang/clis"
+
+[dependencies]
+tui-core = { path = "../tui-core" }
+clap = { version = "4", features = ["derive", "env"] }
+dirs = "5"
+ratatui = "0.28"
+crossterm = "0.28"
+rayon = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+tempfile = "3"
