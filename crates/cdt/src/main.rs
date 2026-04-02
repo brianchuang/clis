@@ -57,6 +57,22 @@ enum Commands {
         #[arg(short = 'y', long)]
         yes: bool,
     },
+    /// Show diff for a workspace's branch against main
+    Diff {
+        /// Workspace name or project/name
+        workspace: String,
+    },
+    /// Open workspace PR in browser or workspace in editor
+    Open {
+        /// Workspace name or project/name
+        workspace: String,
+
+        /// Open in editor instead of browser
+        #[arg(long)]
+        editor: bool,
+    },
+    /// Show one-line summary of workspace status
+    Summary,
     /// Print shell function for cd integration
     InitShell,
     /// Clear the workspace cache
@@ -232,6 +248,75 @@ fn run() -> Result {
             // Invalidate cache since workspace set changed
             if removed > 0 {
                 cache::clear();
+            }
+        }
+        Some(Commands::Diff { workspace }) => {
+            let workspaces = load_workspaces(&root, cli.no_cache, cli.time)?;
+            let ws = scanner::find_workspace(&workspaces, &workspace)
+                .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
+
+            let branch = ws.branch.as_deref().unwrap_or("HEAD");
+
+            // Find main branch ref
+            let main_ref = ["main", "master"]
+                .iter()
+                .find(|r| {
+                    std::process::Command::new("git")
+                        .args(["rev-parse", "--verify", r])
+                        .current_dir(&ws.path)
+                        .output()
+                        .map(|o| o.status.success())
+                        .unwrap_or(false)
+                })
+                .unwrap_or(&"main");
+
+            let status = std::process::Command::new("git")
+                .args(["diff", &format!("{main_ref}...{branch}")])
+                .current_dir(&ws.path)
+                .status()?;
+
+            if !status.success() {
+                return Err("git diff failed".into());
+            }
+        }
+        Some(Commands::Open { workspace, editor }) => {
+            let workspaces = load_workspaces(&root, cli.no_cache, cli.time)?;
+            let ws = scanner::find_workspace(&workspaces, &workspace)
+                .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
+
+            if editor {
+                // Open workspace directory in $EDITOR or fall back to `open`
+                let editor_cmd = std::env::var("EDITOR").unwrap_or_else(|_| "open".to_string());
+                let status = std::process::Command::new(&editor_cmd)
+                    .arg(&ws.path)
+                    .status()?;
+                if !status.success() {
+                    return Err(format!("{editor_cmd} exited with error").into());
+                }
+            } else {
+                // Open PR in browser via gh, or fall back to opening the directory
+                let gh_result = std::process::Command::new("gh")
+                    .args(["pr", "view", "--web"])
+                    .current_dir(&ws.path)
+                    .status();
+
+                match gh_result {
+                    Ok(s) if s.success() => {}
+                    _ => {
+                        eprintln!("No PR found, opening workspace directory...");
+                        std::process::Command::new("open")
+                            .arg(&ws.path)
+                            .status()?;
+                    }
+                }
+            }
+        }
+        Some(Commands::Summary) => {
+            let workspaces = load_workspaces(&root, cli.no_cache, cli.time)?;
+            if workspaces.is_empty() {
+                eprintln!("No workspaces found in {}", root.display());
+            } else {
+                println!("{}", scanner::summarize(&workspaces));
             }
         }
         Some(Commands::InitShell) => {

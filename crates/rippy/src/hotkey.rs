@@ -32,6 +32,7 @@ const K_CG_SESSION_EVENT_TAP: u32 = 1;
 const K_CG_HEAD_INSERT_EVENT_TAP: u32 = 0;
 const K_CG_EVENT_TAP_OPTION_LISTEN_ONLY: u32 = 1;
 const K_CG_EVENT_KEY_DOWN: u32 = 10;
+const K_CG_EVENT_TAP_DISABLED_BY_TIMEOUT: u32 = 0xFFFFFFFE;
 const K_CG_KEYBOARD_EVENT_KEYCODE: u32 = 9;
 
 #[link(name = "CoreGraphics", kind = "framework")]
@@ -46,6 +47,7 @@ extern "C" {
     ) -> CFMachPortRef;
     fn CGEventGetIntegerValueField(event: CGEventRef, field: u32) -> i64;
     fn CGEventGetFlags(event: CGEventRef) -> u64;
+    fn CGEventTapEnable(tap: CFMachPortRef, enable: bool);
 }
 
 #[link(name = "ApplicationServices", kind = "framework")]
@@ -115,6 +117,7 @@ struct HotkeyContext {
     keycode: u16,
     modifier_mask: u64,
     terminal_app: String,
+    tap: CFMachPortRef,
 }
 
 // Mask to isolate the modifier keys we care about (cmd, shift, ctrl, alt).
@@ -127,11 +130,20 @@ unsafe extern "C" fn hotkey_callback(
     event: CGEventRef,
     user_info: *mut c_void,
 ) -> CGEventRef {
+    let ctx = &*(user_info as *const HotkeyContext);
+
+    // macOS disables event taps after a timeout if the callback is too slow
+    // or the system is under load. Re-enable it when that happens.
+    if event_type == K_CG_EVENT_TAP_DISABLED_BY_TIMEOUT {
+        eprintln!("Event tap was disabled by timeout, re-enabling...");
+        CGEventTapEnable(ctx.tap, true);
+        return event;
+    }
+
     if event_type != K_CG_EVENT_KEY_DOWN {
         return event;
     }
 
-    let ctx = &*(user_info as *const HotkeyContext);
     let keycode = CGEventGetIntegerValueField(event, K_CG_KEYBOARD_EVENT_KEYCODE) as u16;
     let flags = CGEventGetFlags(event) & MODIFIER_FILTER;
 
@@ -159,12 +171,15 @@ pub fn install_and_run(cfg: &Config, running: Arc<AtomicBool>) {
     unsafe {
         let run_loop = CFRunLoopGetCurrent();
 
+        // Create the context with a null tap initially — we update it after
+        // CGEventTapCreate succeeds so the callback can re-enable the tap.
         let ctx = Box::new(HotkeyContext {
             keycode,
             modifier_mask,
             terminal_app: cfg.terminal.app.clone(),
+            tap: std::ptr::null_mut(),
         });
-        let ctx_ptr = Box::into_raw(ctx) as *mut c_void;
+        let ctx_ptr = Box::into_raw(ctx);
 
         let tap = CGEventTapCreate(
             K_CG_SESSION_EVENT_TAP,
@@ -172,16 +187,19 @@ pub fn install_and_run(cfg: &Config, running: Arc<AtomicBool>) {
             K_CG_EVENT_TAP_OPTION_LISTEN_ONLY,
             event_mask,
             hotkey_callback,
-            ctx_ptr,
+            ctx_ptr as *mut c_void,
         );
 
         if tap.is_null() {
             eprintln!("Failed to create event tap. Requesting Accessibility permission...");
             check_accessibility(true);
             // Clean up
-            let _ = Box::from_raw(ctx_ptr as *mut HotkeyContext);
+            let _ = Box::from_raw(ctx_ptr);
             return;
         }
+
+        // Now store the tap handle so the callback can re-enable it on timeout.
+        (*ctx_ptr).tap = tap;
 
         let source = CFMachPortCreateRunLoopSource(std::ptr::null(), tap, 0);
         CFRunLoopAddSource(run_loop, source, kCFRunLoopCommonModes);
@@ -201,6 +219,6 @@ pub fn install_and_run(cfg: &Config, running: Arc<AtomicBool>) {
         CFRunLoopRun();
 
         // Clean up
-        let _ = Box::from_raw(ctx_ptr as *mut HotkeyContext);
+        let _ = Box::from_raw(ctx_ptr);
     }
 }

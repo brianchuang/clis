@@ -1198,6 +1198,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "signal-hook",
+ "tempfile",
  "tokio",
  "toml",
  "tui-core",
@@ -1669,6 +1670,7 @@ dependencies = [
 name = "tui-core"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "crossterm",
  "fuzzy-matcher",
  "ratatui",

@@ -176,13 +176,7 @@ fn app_bundle_dir() -> std::path::PathBuf {
 ///
 /// The bundle is placed in ~/Applications/Rippy.app and the launchd plist
 /// points to the binary inside it, not the original cargo-installed binary.
-fn create_app_bundle(rippy_bin: &str) -> std::result::Result<std::path::PathBuf, Box<dyn std::error::Error>> {
-    let app_dir = app_bundle_dir();
-    let macos_dir = app_dir.join("Contents").join("MacOS");
-    std::fs::create_dir_all(&macos_dir)?;
-
-    let info_plist = app_dir.join("Contents").join("Info.plist");
-    std::fs::write(&info_plist, r#"<?xml version="1.0" encoding="UTF-8"?>
+const INFO_PLIST: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
@@ -192,13 +186,52 @@ fn create_app_bundle(rippy_bin: &str) -> std::result::Result<std::path::PathBuf,
     <string>Rippy</string>
     <key>CFBundleExecutable</key>
     <string>rippy</string>
+    <key>LSUIElement</key>
+    <true/>
 </dict>
-</plist>"#)?;
+</plist>"#;
 
-    // Copy the binary into the .app bundle (not symlink — macOS resolves
-    // symlinks and grants permission to the target, defeating the purpose)
+/// Build the .app bundle directory structure at `app_dir` by copying
+/// `rippy_bin` into Contents/MacOS/rippy and writing the Info.plist.
+/// Returns the path to the binary inside the bundle.
+///
+/// Does NOT codesign — call `codesign_bundle` separately so tests can
+/// inspect the intermediate state.
+fn create_app_bundle_at(
+    app_dir: &std::path::Path,
+    rippy_bin: &str,
+) -> std::result::Result<std::path::PathBuf, Box<dyn std::error::Error>> {
+    let macos_dir = app_dir.join("Contents").join("MacOS");
+    std::fs::create_dir_all(&macos_dir)?;
+
+    let info_plist = app_dir.join("Contents").join("Info.plist");
+    std::fs::write(&info_plist, INFO_PLIST)?;
+
     let dest = macos_dir.join("rippy");
-    std::fs::copy(rippy_bin, &dest)?;
+    if !dest.exists() {
+        std::fs::copy(rippy_bin, &dest)?;
+    }
+    Ok(dest)
+}
+
+/// Ad-hoc codesign the .app **bundle** (not just the binary inside it).
+///
+/// Signing the bundle rather than the binary is critical: macOS TCC checks
+/// the bundle's sealed Code Directory, which binds the Info.plist (and its
+/// CFBundleIdentifier) to the executable.  Signing only the binary leaves
+/// Info.plist unbound, so TCC can't associate the running process with the
+/// bundle identifier — causing CGEventTapCreate to fail even after the user
+/// grants Accessibility permission.
+fn codesign_bundle(app_dir: &std::path::Path) -> std::io::Result<std::process::ExitStatus> {
+    std::process::Command::new("codesign")
+        .args(["--force", "--sign", "-", &app_dir.to_string_lossy()])
+        .status()
+}
+
+fn create_app_bundle(rippy_bin: &str) -> std::result::Result<std::path::PathBuf, Box<dyn std::error::Error>> {
+    let app_dir = app_bundle_dir();
+    let dest = create_app_bundle_at(&app_dir, rippy_bin)?;
+    codesign_bundle(&app_dir)?;
     Ok(dest)
 }
 
@@ -209,9 +242,17 @@ fn cmd_install() -> Result<String> {
         .to_string_lossy()
         .to_string();
 
-    let bundle_bin = create_app_bundle(&rippy_bin)?;
-    let bundle_bin_str = bundle_bin.to_string_lossy().to_string();
+    create_app_bundle(&rippy_bin)?;
+    let app_path = app_bundle_dir().to_string_lossy().to_string();
 
+    let log_dir = data_dir();
+    let log_path = log_dir.join("service.log").to_string_lossy().to_string();
+
+    // Use `open -a` to launch the .app bundle instead of executing the binary
+    // directly.  launchd-launched raw binaries run in a security context where
+    // macOS TCC does not apply Accessibility grants, even when the user has
+    // toggled permission on for the .app bundle.  `open` launches the app in
+    // the user's GUI session where TCC works correctly.
     let plist = format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -221,13 +262,22 @@ fn cmd_install() -> Result<String> {
     <string>com.rippy.watcher</string>
     <key>ProgramArguments</key>
     <array>
-        <string>{bundle_bin_str}</string>
+        <string>/usr/bin/open</string>
+        <string>-W</string>
+        <string>{app_path}</string>
+        <string>--args</string>
         <string>watch</string>
     </array>
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
     <true/>
+    <key>AssociatedBundleIdentifiers</key>
+    <string>com.rippy.watcher</string>
+    <key>StandardErrorPath</key>
+    <string>{log_path}</string>
+    <key>StandardOutPath</key>
+    <string>{log_path}</string>
 </dict>
 </plist>"#
     );
@@ -261,13 +311,12 @@ fn cmd_uninstall() -> Result<String> {
         return Ok("No launchd service installed.".to_string());
     }
 
-    // Remove the .app bundle
-    let app_dir = app_bundle_dir();
-    if app_dir.exists() {
-        std::fs::remove_dir_all(&app_dir)?;
-    }
-
-    Ok("Uninstalled launchd service and removed Rippy.app bundle.".to_string())
+    // Keep the .app bundle — deleting it invalidates the Accessibility
+    // permission grant.  Only remove it with `--purge`.
+    Ok("Uninstalled launchd service. App bundle kept at: ".to_string()
+        + &app_bundle_dir().to_string_lossy()
+        + "\n  To remove everything: rm -rf "
+        + &app_bundle_dir().to_string_lossy())
 }
 
 fn cmd_hotkey(action: HotkeyAction) -> Result {
@@ -333,14 +382,25 @@ fn cmd_watch() -> Result {
     let w = watcher::Watcher::spawn(&db_path());
     let cfg = config::Config::load(&data_dir());
 
-    if !hotkey::check_accessibility(true) {
-        eprintln!("Hotkey disabled: Accessibility permission not granted. A system dialog should appear.");
-        eprintln!("Falling back to clipboard watching only.");
+    // Always attempt to install the hotkey — CGEventTapCreate is the real
+    // permission check.  AXIsProcessTrustedWithOptions can return false for
+    // launchd-launched .app bundles even when the bundle has been granted
+    // Accessibility access (the TCC check uses the bundle identifier, but
+    // AXIsProcessTrusted checks the calling binary).  If the tap fails,
+    // install_and_run prints an error and returns immediately, so we fall
+    // back to clipboard-only watching.
+    if !hotkey::check_accessibility(false) {
+        eprintln!("Accessibility pre-check returned false — attempting event tap anyway...");
+    }
+    hotkey::install_and_run(&cfg, running.clone());
+
+    // If install_and_run returned early (tap creation failed), fall back to
+    // clipboard watching only.
+    if running.load(Ordering::Relaxed) {
+        eprintln!("Hotkey disabled: could not create event tap. Grant Accessibility permission to Rippy.");
         while running.load(Ordering::Relaxed) {
             std::thread::sleep(std::time::Duration::from_secs(1));
         }
-    } else {
-        hotkey::install_and_run(&cfg, running);
     }
 
     w.stop();
@@ -384,6 +444,7 @@ fn truncate(s: &str, max: usize) -> String {
 mod tests {
     use super::*;
     use chrono::TimeZone;
+    use std::process::Command;
 
     fn make_entry(id: i64, content: &str) -> db::ClipEntry {
         db::ClipEntry {
@@ -448,5 +509,84 @@ mod tests {
     fn truncate_multiline() {
         let result = truncate("first line\nsecond line", 80);
         assert_eq!(result, "first line…");
+    }
+
+    /// Build a real .app bundle in a temp dir using the current test binary
+    /// as a stand-in, then verify the directory structure is correct.
+    #[test]
+    fn app_bundle_has_correct_structure() {
+        let tmp = tempfile::tempdir().unwrap();
+        let app_dir = tmp.path().join("Test.app");
+        // Use the test binary itself as the source — we just need a valid Mach-O.
+        let test_bin = std::env::current_exe().unwrap();
+
+        let dest = create_app_bundle_at(&app_dir, &test_bin.to_string_lossy()).unwrap();
+
+        assert!(app_dir.join("Contents/Info.plist").exists());
+        assert!(app_dir.join("Contents/MacOS/rippy").exists());
+        assert_eq!(dest, app_dir.join("Contents/MacOS/rippy"));
+
+        let plist = std::fs::read_to_string(app_dir.join("Contents/Info.plist")).unwrap();
+        assert!(plist.contains("com.rippy.watcher"), "Info.plist must contain bundle id");
+        assert!(plist.contains("LSUIElement"), "Info.plist must set LSUIElement for background app");
+    }
+
+    /// After codesigning the bundle, `codesign -d` must report the bundle
+    /// identifier from Info.plist (not an auto-generated one) and Info.plist
+    /// must be bound into the sealed resources.
+    #[test]
+    fn codesign_bundle_binds_identifier_and_plist() {
+        let tmp = tempfile::tempdir().unwrap();
+        let app_dir = tmp.path().join("Test.app");
+        let test_bin = std::env::current_exe().unwrap();
+
+        create_app_bundle_at(&app_dir, &test_bin.to_string_lossy()).unwrap();
+        let status = codesign_bundle(&app_dir).unwrap();
+        assert!(status.success(), "codesign must succeed");
+
+        // Verify: `codesign -d --verbose` should show our bundle identifier
+        let output = Command::new("codesign")
+            .args(["-d", "--verbose=2", &app_dir.to_string_lossy()])
+            .output()
+            .unwrap();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+
+        assert!(
+            stderr.contains("Identifier=com.rippy.watcher"),
+            "codesign must report the bundle identifier from Info.plist, got: {stderr}"
+        );
+        assert!(
+            stderr.contains("Info.plist entries="),
+            "Info.plist must be bound (sealed) into the signature, got: {stderr}"
+        );
+        assert!(
+            !stderr.contains("Info.plist=not bound"),
+            "Info.plist must NOT be 'not bound', got: {stderr}"
+        );
+    }
+
+    /// A linker-signed binary (no explicit codesign) in a bundle leaves
+    /// Info.plist unbound — this was the original bug. The binary had no
+    /// explicit codesign call, so TCC couldn't associate it with the bundle.
+    #[test]
+    fn linker_signed_binary_leaves_plist_unbound() {
+        let tmp = tempfile::tempdir().unwrap();
+        let app_dir = tmp.path().join("Test.app");
+        let test_bin = std::env::current_exe().unwrap();
+
+        // Build bundle but do NOT codesign at all (simulates the original bug)
+        create_app_bundle_at(&app_dir, &test_bin.to_string_lossy()).unwrap();
+
+        let output = Command::new("codesign")
+            .args(["-d", "--verbose=2", &app_dir.to_string_lossy()])
+            .output()
+            .unwrap();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+
+        // Linker-signed binary gets an auto-generated identifier, not our bundle id
+        assert!(
+            !stderr.contains("Identifier=com.rippy.watcher"),
+            "Without explicit codesign, identifier should NOT match bundle id, got: {stderr}"
+        );
     }
 }
