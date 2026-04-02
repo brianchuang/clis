@@ -33,6 +33,7 @@ struct App {
     mode: Mode,
     pending_key: Option<char>,
     list_height: usize,
+    show_help: bool,
 }
 
 impl App {
@@ -51,6 +52,7 @@ impl App {
             mode: Mode::Normal,
             pending_key: None,
             list_height: 0,
+            show_help: false,
         }
     }
 
@@ -119,6 +121,7 @@ fn apply_action(app: &mut App, action: Action) {
             match nav {
                 NavAction::Noop => {}
                 NavAction::Quit => app.should_quit = true,
+                NavAction::ShowHelp => app.show_help = !app.show_help,
                 NavAction::EnterInsert => app.mode = Mode::Insert,
                 NavAction::ExitInsert => {
                     app.mode = Mode::Normal;
@@ -144,7 +147,9 @@ fn apply_action(app: &mut App, action: Action) {
                 | NavAction::MoveToTop
                 | NavAction::MoveToBottom
                 | NavAction::HalfPageUp
-                | NavAction::HalfPageDown) => {
+                | NavAction::HalfPageDown
+                | NavAction::NextMatch
+                | NavAction::PrevMatch) => {
                     app.selected = tui_core::apply_navigation(
                         nav_action,
                         app.selected,
@@ -213,8 +218,12 @@ fn event_loop(
                     continue;
                 }
                 app.copied_id = None;
-                let action = handle_key(key, app.mode, &mut app.pending_key);
-                apply_action(app, action);
+                if app.show_help {
+                    app.show_help = false;
+                } else {
+                    let action = handle_key(key, app.mode, &mut app.pending_key);
+                    apply_action(app, action);
+                }
             }
         }
 
@@ -250,6 +259,24 @@ fn render(f: &mut Frame, app: &mut App) {
         render_status_bar(app.filtered.len(), app.entries.len(), app.copied_id, app.mode),
         chunks[2],
     );
+
+    if app.show_help {
+        let bindings: &[(&str, &str)] = &[
+            ("j / k", "Move down / up"),
+            ("n / N", "Next / previous (wrapping)"),
+            ("g g", "Go to top"),
+            ("G", "Go to bottom"),
+            ("Ctrl-d / Ctrl-u", "Half-page down / up"),
+            ("/", "Search"),
+            ("Enter", "Copy and quit"),
+            ("d d", "Delete entry"),
+            ("Esc / q", "Quit"),
+            ("?", "Toggle this help"),
+        ];
+        let (widget, area) = tui_core::render_help_overlay("rippy", bindings, f.area());
+        f.render_widget(Clear, area);
+        f.render_widget(widget, area);
+    }
 }
 
 fn render_clip_list<'a>(
@@ -294,7 +321,7 @@ fn render_status_bar(count: usize, total: usize, copied_id: Option<i64>, mode: M
         (" Copied! ".to_string(), Style::default().bg(Color::Green).fg(Color::Black))
     } else {
         let help = match mode {
-            Mode::Normal => format!(" {count}/{total} \u{2502} j/k move \u{2502} Enter copy \u{2502} dd delete \u{2502} / search \u{2502} q quit"),
+            Mode::Normal => format!(" {count}/{total} \u{2502} j/k move \u{2502} Enter copy \u{2502} dd delete \u{2502} / search \u{2502} ? help \u{2502} q quit"),
             Mode::Insert => format!(" {count}/{total} \u{2502} type to filter \u{2502} Enter copy \u{2502} Esc normal mode"),
         };
         (help, Style::default().bg(Color::DarkGray).fg(Color::White))

@@ -24,6 +24,9 @@ pub enum NavAction {
     MoveToBottom,
     HalfPageUp,
     HalfPageDown,
+    NextMatch,
+    PrevMatch,
+    ShowHelp,
     EnterInsert,
     ExitInsert,
     TypeChar(char),
@@ -96,6 +99,9 @@ fn handle_normal_key(
         KeyCode::Char('k') | KeyCode::Up => Some(NavAction::MoveUp),
         KeyCode::Char('G') => Some(NavAction::MoveToBottom),
         KeyCode::Char('g') => { *pending = Some('g'); Some(NavAction::Noop) }
+        KeyCode::Char('n') => Some(NavAction::NextMatch),
+        KeyCode::Char('N') => Some(NavAction::PrevMatch),
+        KeyCode::Char('?') => Some(NavAction::ShowHelp),
         KeyCode::Char('/') | KeyCode::Char('i') => Some(NavAction::EnterInsert),
         KeyCode::Enter => None, // App-specific
         KeyCode::Char(c) if extra_pending_keys.contains(&c) => {
@@ -153,6 +159,20 @@ pub fn apply_navigation(
             let half = list_height / 2;
             if filtered_len > 0 {
                 (selected + half.max(1)).min(filtered_len - 1)
+            } else {
+                selected
+            }
+        }
+        NavAction::NextMatch => {
+            if filtered_len > 0 {
+                (selected + 1) % filtered_len
+            } else {
+                selected
+            }
+        }
+        NavAction::PrevMatch => {
+            if filtered_len > 0 {
+                if selected == 0 { filtered_len - 1 } else { selected - 1 }
             } else {
                 selected
             }
@@ -236,6 +256,50 @@ pub fn render_search_bar(app_name: &str, query: &str, mode: Mode, placeholder: &
                 .border_style(Style::default().fg(border_color))
                 .title(mode_label),
         )
+}
+
+// --- Help overlay ---
+
+/// Render a centered help overlay listing keybindings.
+/// `app_name` is shown in the title. `bindings` is a list of (key, description) pairs.
+pub fn render_help_overlay(app_name: &str, bindings: &[(&str, &str)], area: Rect) -> (Paragraph<'static>, Rect) {
+    let max_key_width = bindings.iter().map(|(k, _)| k.len()).max().unwrap_or(0);
+    let max_desc_width = bindings.iter().map(|(_, d)| d.len()).max().unwrap_or(0);
+    let inner_width = max_key_width + max_desc_width + 5; // padding + separator
+    let inner_height = bindings.len() as u16 + 2; // +2 for top/bottom padding
+
+    let popup_width = (inner_width as u16 + 4).min(area.width.saturating_sub(4));
+    let popup_height = (inner_height + 2).min(area.height.saturating_sub(2)); // +2 for borders
+    let popup_x = area.x + (area.width.saturating_sub(popup_width)) / 2;
+    let popup_y = area.y + (area.height.saturating_sub(popup_height)) / 2;
+    let popup_area = Rect::new(popup_x, popup_y, popup_width, popup_height);
+
+    let lines: Vec<Line<'static>> = std::iter::once(Line::from(""))
+        .chain(bindings.iter().map(|(key, desc)| {
+            Line::from(vec![
+                Span::styled(
+                    format!("  {key:>width$}", width = max_key_width),
+                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                ),
+                Span::raw("  "),
+                Span::styled(desc.to_string(), Style::default().fg(Color::White)),
+            ])
+        }))
+        .chain(std::iter::once(Line::from(Span::styled(
+            "  Press any key to close",
+            Style::default().fg(Color::DarkGray),
+        ))))
+        .collect();
+
+    let widget = Paragraph::new(lines).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Cyan))
+            .title(format!(" {app_name} — Keybindings "))
+            .style(Style::default().bg(Color::Black)),
+    );
+
+    (widget, popup_area)
 }
 
 // --- Test helpers ---
@@ -329,6 +393,24 @@ mod tests {
         handle_key(make_test_key(KeyCode::Char('g')), Mode::Normal, &mut pending, &[]);
         let action = handle_key(make_test_key(KeyCode::Char('x')), Mode::Normal, &mut pending, &[]);
         assert_eq!(action, Some(NavAction::Noop));
+    }
+
+    #[test]
+    fn normal_n_next_match() {
+        let mut pending = None;
+        assert_eq!(handle_key(make_test_key(KeyCode::Char('n')), Mode::Normal, &mut pending, &[]), Some(NavAction::NextMatch));
+    }
+
+    #[test]
+    fn normal_shift_n_prev_match() {
+        let mut pending = None;
+        assert_eq!(handle_key(make_test_key(KeyCode::Char('N')), Mode::Normal, &mut pending, &[]), Some(NavAction::PrevMatch));
+    }
+
+    #[test]
+    fn normal_question_mark_shows_help() {
+        let mut pending = None;
+        assert_eq!(handle_key(make_test_key(KeyCode::Char('?')), Mode::Normal, &mut pending, &[]), Some(NavAction::ShowHelp));
     }
 
     #[test]
@@ -462,6 +544,36 @@ mod tests {
     #[test]
     fn nav_half_page_down_clamps() {
         assert_eq!(apply_navigation(&NavAction::HalfPageDown, 3, 5, 20), 4);
+    }
+
+    #[test]
+    fn nav_next_match_wraps() {
+        assert_eq!(apply_navigation(&NavAction::NextMatch, 4, 5, 10), 0);
+    }
+
+    #[test]
+    fn nav_next_match_advances() {
+        assert_eq!(apply_navigation(&NavAction::NextMatch, 2, 5, 10), 3);
+    }
+
+    #[test]
+    fn nav_prev_match_wraps() {
+        assert_eq!(apply_navigation(&NavAction::PrevMatch, 0, 5, 10), 4);
+    }
+
+    #[test]
+    fn nav_prev_match_retreats() {
+        assert_eq!(apply_navigation(&NavAction::PrevMatch, 3, 5, 10), 2);
+    }
+
+    #[test]
+    fn nav_next_match_empty() {
+        assert_eq!(apply_navigation(&NavAction::NextMatch, 0, 0, 10), 0);
+    }
+
+    #[test]
+    fn nav_prev_match_empty() {
+        assert_eq!(apply_navigation(&NavAction::PrevMatch, 0, 0, 10), 0);
     }
 
     #[test]

@@ -30,6 +30,7 @@ pub struct App {
     pub mode: Mode,
     pub pending_key: Option<char>,
     pub list_height: usize,
+    pub show_help: bool,
 }
 
 impl App {
@@ -46,6 +47,7 @@ impl App {
             mode: Mode::Normal,
             pending_key: None,
             list_height: 0,
+            show_help: false,
         }
     }
 
@@ -83,6 +85,7 @@ pub fn apply_action(app: &mut App, action: Action) {
             match nav {
                 tui_core::NavAction::Noop => {}
                 tui_core::NavAction::Quit => app.should_quit = true,
+                tui_core::NavAction::ShowHelp => app.show_help = !app.show_help,
                 tui_core::NavAction::EnterInsert => app.mode = Mode::Insert,
                 tui_core::NavAction::ExitInsert => {
                     app.mode = Mode::Normal;
@@ -108,7 +111,9 @@ pub fn apply_action(app: &mut App, action: Action) {
                 | tui_core::NavAction::MoveToTop
                 | tui_core::NavAction::MoveToBottom
                 | tui_core::NavAction::HalfPageUp
-                | tui_core::NavAction::HalfPageDown) => {
+                | tui_core::NavAction::HalfPageDown
+                | tui_core::NavAction::NextMatch
+                | tui_core::NavAction::PrevMatch) => {
                     app.selected = tui_core::apply_navigation(
                         nav_action,
                         app.selected,
@@ -193,8 +198,12 @@ fn event_loop(
                 if key.kind != KeyEventKind::Press {
                     continue;
                 }
-                let action = handle_key(key, app.mode, &mut app.pending_key);
-                apply_action(app, action);
+                if app.show_help {
+                    app.show_help = false;
+                } else {
+                    let action = handle_key(key, app.mode, &mut app.pending_key);
+                    apply_action(app, action);
+                }
             }
         }
 
@@ -230,6 +239,23 @@ fn render(f: &mut Frame, app: &mut App) {
         render_status_bar(app.filtered.len(), app.workspaces.len(), app.mode, app.selected_workspace()),
         chunks[2],
     );
+
+    if app.show_help {
+        let bindings: &[(&str, &str)] = &[
+            ("j / k", "Move down / up"),
+            ("n / N", "Next / previous (wrapping)"),
+            ("g g", "Go to top"),
+            ("G", "Go to bottom"),
+            ("Ctrl-d / Ctrl-u", "Half-page down / up"),
+            ("/", "Search"),
+            ("Enter", "Select workspace"),
+            ("Esc / q", "Quit"),
+            ("?", "Toggle this help"),
+        ];
+        let (widget, area) = tui_core::render_help_overlay("cdt", bindings, f.area());
+        f.render_widget(Clear, area);
+        f.render_widget(widget, area);
+    }
 }
 
 fn render_workspace_list<'a>(
@@ -295,7 +321,7 @@ fn render_status_bar(count: usize, total: usize, mode: Mode, selected: Option<&W
         .unwrap_or_default();
 
     let help = match mode {
-        Mode::Normal => format!(" {count}/{total} \u{2502} j/k move \u{2502} Enter select \u{2502} / search \u{2502} q quit  {path_hint}"),
+        Mode::Normal => format!(" {count}/{total} \u{2502} j/k move \u{2502} Enter select \u{2502} / search \u{2502} ? help \u{2502} q quit  {path_hint}"),
         Mode::Insert => format!(" {count}/{total} \u{2502} type to filter \u{2502} Enter select \u{2502} Esc normal  {path_hint}"),
     };
 
