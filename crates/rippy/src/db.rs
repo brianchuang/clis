@@ -123,6 +123,28 @@ impl Store {
     pub fn all(&self) -> Result<Vec<ClipEntry>> {
         self.recent(10000)
     }
+
+    /// Count total entries in the store.
+    pub fn count(&self) -> Result<usize> {
+        self.conn
+            .query_row("SELECT COUNT(*) FROM clips", [], |row| row.get::<_, i64>(0))
+            .map(|n| n as usize)
+    }
+
+    /// Delete the oldest entries to keep at most `max_entries` in the store.
+    /// Returns the number of entries deleted.
+    pub fn prune(&self, max_entries: usize) -> Result<usize> {
+        let count = self.count()?;
+        if count <= max_entries {
+            return Ok(0);
+        }
+        let excess = count - max_entries;
+        self.conn.execute(
+            "DELETE FROM clips WHERE id IN (SELECT id FROM clips ORDER BY timestamp ASC LIMIT ?1)",
+            params![excess as i64],
+        )?;
+        Ok(excess)
+    }
 }
 
 #[cfg(test)]
@@ -208,6 +230,61 @@ mod tests {
         let id = store.insert("to delete", None).unwrap();
         assert!(store.delete(id).unwrap());
         assert!(store.get(id).unwrap().is_none());
+    }
+
+    #[test]
+    fn count_returns_entry_count() {
+        let store = temp_store();
+        assert_eq!(store.count().unwrap(), 0);
+        store.insert("one", None).unwrap();
+        store.insert("two", None).unwrap();
+        assert_eq!(store.count().unwrap(), 2);
+    }
+
+    #[test]
+    fn prune_removes_oldest_entries() {
+        let store = temp_store();
+        for i in 0..5 {
+            store.insert(&format!("entry {i}"), None).unwrap();
+            // Force distinct timestamps by bumping the timestamp column directly
+            store.conn.execute(
+                "UPDATE clips SET timestamp = ?1 WHERE content = ?2",
+                params![1000 + i, format!("entry {i}")],
+            ).unwrap();
+        }
+        assert_eq!(store.count().unwrap(), 5);
+
+        let pruned = store.prune(3).unwrap();
+        assert_eq!(pruned, 2);
+        assert_eq!(store.count().unwrap(), 3);
+
+        // Remaining entries should be the newest ones (entries 2, 3, 4)
+        let remaining = store.recent(10).unwrap();
+        let contents: Vec<&str> = remaining.iter().map(|e| e.content.as_str()).collect();
+        assert!(contents.contains(&"entry 2"));
+        assert!(contents.contains(&"entry 3"));
+        assert!(contents.contains(&"entry 4"));
+        assert!(!contents.contains(&"entry 0"));
+        assert!(!contents.contains(&"entry 1"));
+    }
+
+    #[test]
+    fn prune_noop_when_under_limit() {
+        let store = temp_store();
+        store.insert("one", None).unwrap();
+        store.insert("two", None).unwrap();
+        let pruned = store.prune(10).unwrap();
+        assert_eq!(pruned, 0);
+        assert_eq!(store.count().unwrap(), 2);
+    }
+
+    #[test]
+    fn prune_exact_limit_is_noop() {
+        let store = temp_store();
+        store.insert("one", None).unwrap();
+        store.insert("two", None).unwrap();
+        let pruned = store.prune(2).unwrap();
+        assert_eq!(pruned, 0);
     }
 
     #[test]

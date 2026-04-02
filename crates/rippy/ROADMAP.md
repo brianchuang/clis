@@ -12,9 +12,9 @@ This roadmap captures the vision for where rippy is headed.
 Ship what exists with better ergonomics.
 
 - [ ] Suggest `yy` alias in install output
-- [ ] `--json` flag on `list` and `search` for scriptability
+- [x] `--json` flag on `list` and `search` for scriptability
 - [ ] Auto-expire entries from password managers (detect short-lived clipboard copies that disappear within ~10s)
-- [ ] Configurable history retention with TTL (`default_ttl`, `max_entries` in config.toml)
+- [x] Configurable history retention with `max_entries` in config.toml (auto-prune oldest on insert)
 
 ## v0.2 — Better TUI
 

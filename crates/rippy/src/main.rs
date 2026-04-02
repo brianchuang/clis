@@ -379,8 +379,8 @@ fn cmd_watch() -> Result {
     signal_hook::flag::register(signal_hook::consts::SIGTERM, running.clone()).ok();
     signal_hook::flag::register(signal_hook::consts::SIGINT, running.clone()).ok();
 
-    let w = watcher::Watcher::spawn(&db_path());
     let cfg = config::Config::load(&data_dir());
+    let w = watcher::Watcher::spawn(&db_path(), cfg.history.max_entries);
 
     // Always attempt to install the hotkey — CGEventTapCreate is the real
     // permission check.  AXIsProcessTrustedWithOptions can return false for
