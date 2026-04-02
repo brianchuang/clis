@@ -1,5 +1,6 @@
 use cdt::cache;
 use cdt::clean;
+use cdt::conflicts;
 use cdt::scanner;
 use cdt::tui;
 
@@ -71,6 +72,8 @@ enum Commands {
         #[arg(long)]
         editor: bool,
     },
+    /// Detect file conflicts across open worktrees
+    Conflicts,
     /// Show one-line summary of workspace status
     Summary,
     /// Print shell function for cd integration
@@ -277,6 +280,30 @@ fn run() -> Result {
 
             if !status.success() {
                 return Err("git diff failed".into());
+            }
+        }
+        Some(Commands::Conflicts) => {
+            let workspaces = load_workspaces(&root, cli.no_cache, cli.time)?;
+            let changes = conflicts::gather_changes(&workspaces);
+
+            if changes.is_empty() {
+                eprintln!("No open worktrees with changes found.");
+                return Ok(());
+            }
+
+            let file_conflicts = conflicts::detect_conflicts(&changes);
+
+            if file_conflicts.is_empty() {
+                println!(
+                    "No conflicts detected across {} worktree(s).",
+                    changes.len()
+                );
+            } else {
+                println!(
+                    "{} file(s) touched by multiple worktrees:\n",
+                    file_conflicts.len()
+                );
+                print!("{}", conflicts::format_conflicts(&file_conflicts));
             }
         }
         Some(Commands::Open { workspace, editor }) => {
