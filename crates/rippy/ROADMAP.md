@@ -20,7 +20,7 @@ Ship what exists with better ergonomics.
 
 Make the picker more powerful without losing simplicity.
 
-- [ ] Preview pane — show full content of selected entry (scrollable)
+- [x] Preview pane — show full content of selected entry (scrollable)
 - [ ] Syntax highlighting for code snippets in preview
 - [ ] Entry pinning — star entries so they never expire or get pruned
 - [ ] Auto-detected content tags (url, code, path, text) shown in list view

@@ -18,6 +18,9 @@ enum Action {
     Nav(NavAction),
     CopyAndQuit,
     DeleteSelected,
+    TogglePreview,
+    ScrollPreviewDown,
+    ScrollPreviewUp,
 }
 
 // --- State ---
@@ -35,6 +38,8 @@ struct App {
     pending_key: Option<char>,
     list_height: usize,
     show_help: bool,
+    show_preview: bool,
+    preview_scroll: usize,
 }
 
 impl App {
@@ -54,6 +59,8 @@ impl App {
             pending_key: None,
             list_height: 0,
             show_help: false,
+            show_preview: true,
+            preview_scroll: 0,
         }
     }
 
@@ -110,6 +117,22 @@ fn handle_key(key: crossterm::event::KeyEvent, mode: Mode, pending: &mut Option<
         return Action::Nav(NavAction::Noop);
     }
 
+    // Normal mode: p toggles preview, Ctrl+j/k scrolls preview
+    if mode == Mode::Normal {
+        if let KeyCode::Char('p') = key.code {
+            if key.modifiers.is_empty() {
+                return Action::TogglePreview;
+            }
+        }
+        if key.modifiers == crossterm::event::KeyModifiers::CONTROL {
+            match key.code {
+                KeyCode::Char('j') => return Action::ScrollPreviewDown,
+                KeyCode::Char('k') => return Action::ScrollPreviewUp,
+                _ => {}
+            }
+        }
+    }
+
     match tui_core::handle_key(key, mode, pending, &['d']) {
         Some(nav) => Action::Nav(nav),
         None => Action::CopyAndQuit, // Enter is CopyAndQuit for rippy
@@ -117,6 +140,7 @@ fn handle_key(key: crossterm::event::KeyEvent, mode: Mode, pending: &mut Option<
 }
 
 fn apply_action(app: &mut App, action: Action) {
+    let prev_selected = app.selected;
     match action {
         Action::Nav(nav) => {
             match nav {
@@ -174,6 +198,20 @@ fn apply_action(app: &mut App, action: Action) {
                 app.refresh();
             }
         }
+        Action::TogglePreview => {
+            app.show_preview = !app.show_preview;
+            app.preview_scroll = 0;
+        }
+        Action::ScrollPreviewDown => {
+            app.preview_scroll = app.preview_scroll.saturating_add(3);
+        }
+        Action::ScrollPreviewUp => {
+            app.preview_scroll = app.preview_scroll.saturating_sub(3);
+        }
+    }
+    // Reset preview scroll when selection changes
+    if app.selected != prev_selected {
+        app.preview_scroll = 0;
     }
 }
 
@@ -250,16 +288,29 @@ fn render(f: &mut Frame, app: &mut App) {
 
     f.render_widget(tui_core::render_search_bar("rippy", &app.query, app.mode, "Type to search\u{2026}"), chunks[0]);
 
-    let list_height = chunks[1].height as usize;
+    let content_area = chunks[1];
+    let list_area = if app.show_preview {
+        let halves = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+            .split(content_area);
+
+        render_preview(f, app, halves[1]);
+        halves[0]
+    } else {
+        content_area
+    };
+
+    let list_height = list_area.height as usize;
     app.list_height = list_height;
     tui_core::adjust_scroll(app.selected, &mut app.scroll_offset, list_height);
     f.render_widget(
         render_clip_list(&app.entries, &app.filtered, app.selected, app.scroll_offset, list_height, app.copied_id),
-        chunks[1],
+        list_area,
     );
 
     f.render_widget(
-        render_status_bar(app.filtered.len(), app.entries.len(), app.copied_id, app.mode),
+        render_status_bar(app.filtered.len(), app.entries.len(), app.copied_id, app.mode, app.show_preview),
         chunks[2],
     );
 
@@ -270,6 +321,8 @@ fn render(f: &mut Frame, app: &mut App) {
             ("g g", "Go to top"),
             ("G", "Go to bottom"),
             ("Ctrl-d / Ctrl-u", "Half-page down / up"),
+            ("p", "Toggle preview pane"),
+            ("Ctrl-j / Ctrl-k", "Scroll preview down / up"),
             ("/", "Search"),
             ("Enter", "Copy and quit"),
             ("d d", "Delete entry"),
@@ -319,12 +372,66 @@ fn render_list_item(entry: &ClipEntry, is_selected: bool, copied_id: Option<i64>
     ]))
 }
 
-fn render_status_bar(count: usize, total: usize, copied_id: Option<i64>, mode: Mode) -> Paragraph<'static> {
+fn render_preview(f: &mut Frame, app: &App, area: Rect) {
+    let block = Block::default()
+        .borders(Borders::LEFT)
+        .border_style(Style::default().fg(Color::DarkGray))
+        .title(" Preview ")
+        .title_style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD));
+
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    let content = match app.selected_entry() {
+        Some(entry) => &entry.content,
+        None => return,
+    };
+
+    let preview_height = inner.height as usize;
+    let lines: Vec<Line> = content
+        .lines()
+        .enumerate()
+        .map(|(i, line)| {
+            let line_num = Span::styled(
+                format!("{:>4} ", i + 1),
+                Style::default().fg(Color::DarkGray),
+            );
+            let text = Span::raw(line.to_string());
+            Line::from(vec![line_num, text])
+        })
+        .collect();
+
+    // Clamp preview scroll to content bounds
+    let max_scroll = lines.len().saturating_sub(preview_height);
+    let scroll = app.preview_scroll.min(max_scroll);
+
+    let paragraph = Paragraph::new(lines)
+        .scroll((scroll as u16, 0))
+        .wrap(Wrap { trim: false });
+
+    f.render_widget(paragraph, inner);
+}
+
+fn render_status_bar(count: usize, total: usize, copied_id: Option<i64>, mode: Mode, show_preview: bool) -> Paragraph<'static> {
     let (text, style) = if copied_id.is_some() {
         (" Copied! ".to_string(), Style::default().bg(Color::Green).fg(Color::Black))
     } else {
         let help = match mode {
-            Mode::Normal => format!(" {count}/{total} \u{2502} j/k move \u{2502} Enter copy \u{2502} dd delete \u{2502} / search \u{2502} ? help \u{2502} q quit"),
+            Mode::Normal => {
+                let count_str = format!(" {count}/{total}");
+                let mut parts: Vec<&str> = vec![
+                    &count_str,
+                    "j/k move",
+                    "Enter copy",
+                    "dd delete",
+                    "p preview",
+                ];
+                if show_preview {
+                    parts.push("C-j/k scroll");
+                }
+                parts.extend_from_slice(&["/ search", "? help", "q quit"]);
+                parts.join(" \u{2502} ")
+            }
             Mode::Insert => format!(" {count}/{total} \u{2502} type to filter \u{2502} Enter copy \u{2502} Esc normal mode"),
         };
         (help, Style::default().bg(Color::DarkGray).fg(Color::White))
