@@ -8,6 +8,23 @@ pub struct Config {
     pub hotkey: HotkeyConfig,
     #[serde(default)]
     pub terminal: TerminalConfig,
+    #[serde(default)]
+    pub history: HistoryConfig,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct HistoryConfig {
+    /// Maximum number of entries to keep. Oldest entries are pruned on insert.
+    #[serde(default = "default_max_entries")]
+    pub max_entries: usize,
+}
+
+fn default_max_entries() -> usize { 10_000 }
+
+impl Default for HistoryConfig {
+    fn default() -> Self {
+        Self { max_entries: default_max_entries() }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -107,4 +124,35 @@ pub fn format_hotkey(cfg: &HotkeyConfig) -> String {
         other => other,
     }).collect();
     format!("{}+{}", mods.join("+"), cfg.key.to_uppercase())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_config_has_max_entries() {
+        let cfg = Config::default();
+        assert_eq!(cfg.history.max_entries, 10_000);
+    }
+
+    #[test]
+    fn parse_config_with_history_section() {
+        let toml_str = r#"
+[history]
+max_entries = 500
+"#;
+        let cfg: Config = toml::from_str(toml_str).unwrap();
+        assert_eq!(cfg.history.max_entries, 500);
+    }
+
+    #[test]
+    fn parse_config_without_history_uses_default() {
+        let toml_str = r#"
+[hotkey]
+key = "v"
+"#;
+        let cfg: Config = toml::from_str(toml_str).unwrap();
+        assert_eq!(cfg.history.max_entries, 10_000);
+    }
 }

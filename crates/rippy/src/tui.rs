@@ -1,4 +1,5 @@
 use crate::clipboard;
+use crate::config::Config;
 use crate::db::{ClipEntry, Store};
 use crate::watcher::Watcher;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
@@ -179,7 +180,9 @@ fn apply_action(app: &mut App, action: Action) {
 // --- Main loop ---
 
 pub fn run(db_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
-    let watcher = Watcher::spawn(db_path);
+    let data_dir = db_path.parent().unwrap_or(Path::new("."));
+    let cfg = Config::load(data_dir);
+    let watcher = Watcher::spawn(db_path, cfg.history.max_entries);
 
     let store = Store::open(db_path)?;
     let mut app = App::new(store);
