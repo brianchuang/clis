@@ -31,8 +31,8 @@ fn parse_frontmatter(raw: &str) -> (serde_yaml::Value, String) {
         let body = if body_start < after_open.len() {
             // Skip the newline after closing ---
             let rest = &after_open[body_start..];
-            if rest.starts_with('\n') {
-                rest[1..].to_string()
+            if let Some(stripped) = rest.strip_prefix('\n') {
+                stripped.to_string()
             } else {
                 rest.to_string()
             }
