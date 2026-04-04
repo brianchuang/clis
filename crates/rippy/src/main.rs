@@ -341,6 +341,7 @@ fn cmd_install() -> Result<String> {
     msg.push_str(
         "\n  Grant it to \"Rippy\" in System Settings > Privacy & Security > Input Monitoring",
     );
+    msg.push_str("\n\nTip: alias yy=\"rippy\" in your shell config for quick access.");
     Ok(msg)
 }
 
@@ -690,9 +691,17 @@ mod tests {
         // can verify the static string that's appended to the message.
         // This acts as a grep-guard: if someone changes the message back to
         // "Accessibility", this test fails.
-        let msg = "Grant it to \"Rippy\" in System Settings > Privacy & Security > Input Monitoring";
+        let msg =
+            "Grant it to \"Rippy\" in System Settings > Privacy & Security > Input Monitoring";
         assert!(msg.contains("Input Monitoring"));
         assert!(!msg.contains("Accessibility"));
+    }
+
+    #[test]
+    fn install_message_suggests_yy_alias() {
+        let hint = "Tip: alias yy=\"rippy\" in your shell config for quick access.";
+        assert!(hint.contains("yy"));
+        assert!(hint.contains("rippy"));
     }
 
     /// A linker-signed binary (no explicit codesign) in a bundle leaves
