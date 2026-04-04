@@ -213,6 +213,7 @@ name = "cdt"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "cli-core",
  "crossterm",
  "dirs",
  "ratatui",
@@ -282,6 +283,14 @@ name = "clap_lex"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
+
+[[package]]
+name = "cli-core"
+version = "0.1.0"
+dependencies = [
+ "dirs",
+ "tempfile",
+]
 
 [[package]]
 name = "colorchoice"
@@ -1244,6 +1253,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "ranking-core"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "fuzzy-matcher",
+]
+
+[[package]]
 name = "ratatui"
 version = "0.28.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1359,6 +1376,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "clap",
+ "cli-core",
  "crossterm",
  "dirs",
  "hex",
@@ -1894,7 +1912,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "crossterm",
- "fuzzy-matcher",
+ "ranking-core",
  "ratatui",
 ]
 

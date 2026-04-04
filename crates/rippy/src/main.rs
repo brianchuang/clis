@@ -9,10 +9,10 @@ mod terminal;
 mod tui;
 mod watcher;
 
+use cli_core::Result;
+
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
-
-type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 #[derive(Parser)]
 #[command(name = "rippy", about = "macOS clipboard history manager")]
@@ -115,10 +115,7 @@ fn with_store<T>(
 }
 
 fn main() {
-    if let Err(e) = run() {
-        eprintln!("Error: {e}");
-        std::process::exit(1);
-    }
+    cli_core::run_main(run);
 }
 
 fn run() -> Result {
@@ -286,45 +283,12 @@ fn init_shell_output() -> String {
     "# Add to your .zshrc or .bashrc:\nalias yy=\"rippy\"\n".to_string()
 }
 
-/// Detect the user's shell rc file and append the eval line if not already present.
 fn append_shell_alias() -> Option<String> {
-    let home = dirs::home_dir()?;
-    let shell = std::env::var("SHELL").unwrap_or_default();
-    let rc_path = if shell.ends_with("zsh") {
-        home.join(".zshrc")
-    } else if shell.ends_with("bash") {
-        // Prefer .bashrc; fall back to .bash_profile on macOS where .bashrc
-        // may not exist yet.
-        let bashrc = home.join(".bashrc");
-        if bashrc.exists() {
-            bashrc
-        } else {
-            home.join(".bash_profile")
-        }
-    } else {
-        return None;
-    };
-
-    let contents = std::fs::read_to_string(&rc_path).unwrap_or_default();
-    if contents.contains(SHELL_ALIAS_LINE) {
-        return Some(format!(
-            "Shell alias already configured in {}",
-            rc_path.display()
-        ));
-    }
-
-    let mut file = std::fs::OpenOptions::new()
-        .append(true)
-        .create(true)
-        .open(&rc_path)
-        .ok()?;
-    use std::io::Write;
-    writeln!(
-        file,
-        "\n# rippy — clipboard history manager\n{SHELL_ALIAS_LINE}"
+    cli_core::shell::ensure_shell_line(
+        SHELL_ALIAS_LINE,
+        &format!("# rippy — clipboard history manager\n{SHELL_ALIAS_LINE}"),
+        "Shell alias already configured in",
     )
-    .ok()?;
-    Some(format!("Added yy alias to {}", rc_path.display()))
 }
 
 fn cmd_install() -> Result<String> {

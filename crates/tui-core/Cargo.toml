@@ -9,5 +9,5 @@ repository = "https://github.com/brianchuang/clis"
 [dependencies]
 crossterm = "0.28"
 ratatui = "0.28"
-fuzzy-matcher = "0.3"
+ranking-core = { path = "../ranking-core" }
 chrono = "0.4"

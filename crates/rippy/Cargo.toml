@@ -11,6 +11,7 @@ categories = ["command-line-utilities"]
 
 [dependencies]
 tui-core = { path = "../tui-core" }
+cli-core = { path = "../cli-core" }
 clap = { version = "4", features = ["derive"] }
 rusqlite = { version = "0.31", features = ["bundled"] }
 chrono = { version = "0.4", features = ["serde"] }

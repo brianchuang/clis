@@ -8,6 +8,7 @@ repository = "https://github.com/brianchuang/clis"
 
 [dependencies]
 tui-core = { path = "../tui-core" }
+cli-core = { path = "../cli-core" }
 clap = { version = "4", features = ["derive", "env"] }
 dirs = "5"
 ratatui = "0.28"
