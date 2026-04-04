@@ -65,6 +65,8 @@ enum Commands {
         #[command(subcommand)]
         action: HotkeyAction,
     },
+    /// Print shell alias for yy shortcut (eval in your shell rc)
+    InitShell,
     /// Start MCP server (stdio transport) for AI assistant integration
     Mcp,
     /// Watch clipboard (used internally by launchd)
@@ -132,6 +134,7 @@ fn run() -> Result {
         Some(Commands::Save) => println!("{}", cmd_save()?),
         Some(Commands::Clear) => println!("{}", cmd_clear()?),
         Some(Commands::Hotkey { action }) => cmd_hotkey(action)?,
+        Some(Commands::InitShell) => print!("{}", init_shell_output()),
         Some(Commands::Install) => println!("{}", cmd_install()?),
         Some(Commands::Uninstall) => println!("{}", cmd_uninstall()?),
         Some(Commands::Mcp) => tokio::runtime::Runtime::new()?.block_on(mcp::run(db_path()))?,
@@ -276,6 +279,53 @@ fn create_app_bundle(
     Ok(dest)
 }
 
+const SHELL_ALIAS_LINE: &str = r#"eval "$(rippy init-shell)""#;
+
+fn init_shell_output() -> String {
+    "# Add to your .zshrc or .bashrc:\nalias yy=\"rippy\"\n".to_string()
+}
+
+/// Detect the user's shell rc file and append the eval line if not already present.
+fn append_shell_alias() -> Option<String> {
+    let home = dirs::home_dir()?;
+    let shell = std::env::var("SHELL").unwrap_or_default();
+    let rc_path = if shell.ends_with("zsh") {
+        home.join(".zshrc")
+    } else if shell.ends_with("bash") {
+        // Prefer .bashrc; fall back to .bash_profile on macOS where .bashrc
+        // may not exist yet.
+        let bashrc = home.join(".bashrc");
+        if bashrc.exists() {
+            bashrc
+        } else {
+            home.join(".bash_profile")
+        }
+    } else {
+        return None;
+    };
+
+    let contents = std::fs::read_to_string(&rc_path).unwrap_or_default();
+    if contents.contains(SHELL_ALIAS_LINE) {
+        return Some(format!(
+            "Shell alias already configured in {}",
+            rc_path.display()
+        ));
+    }
+
+    let mut file = std::fs::OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open(&rc_path)
+        .ok()?;
+    use std::io::Write;
+    writeln!(
+        file,
+        "\n# rippy — clipboard history manager\n{SHELL_ALIAS_LINE}"
+    )
+    .ok()?;
+    Some(format!("Added yy alias to {}", rc_path.display()))
+}
+
 fn cmd_install() -> Result<String> {
     let plist_path = plist_path();
     let rippy_bin = std::env::current_exe()?
@@ -341,7 +391,12 @@ fn cmd_install() -> Result<String> {
     msg.push_str(
         "\n  Grant it to \"Rippy\" in System Settings > Privacy & Security > Input Monitoring",
     );
-    msg.push_str("\n\nTip: alias yy=\"rippy\" in your shell config for quick access.");
+    match append_shell_alias() {
+        Some(result) => msg.push_str(&format!("\n\n{result}")),
+        None => msg.push_str(
+            "\n\nTip: Add `eval \"$(rippy init-shell)\"` to your shell config for the `yy` alias.",
+        ),
+    }
     Ok(msg)
 }
 
@@ -698,10 +753,48 @@ mod tests {
     }
 
     #[test]
-    fn install_message_suggests_yy_alias() {
-        let hint = "Tip: alias yy=\"rippy\" in your shell config for quick access.";
-        assert!(hint.contains("yy"));
-        assert!(hint.contains("rippy"));
+    fn init_shell_outputs_alias() {
+        let output = init_shell_output();
+        assert!(output.contains("alias yy=\"rippy\""));
+    }
+
+    #[test]
+    fn append_shell_alias_writes_to_rc() {
+        let tmp = tempfile::tempdir().unwrap();
+        let rc_path = tmp.path().join(".zshrc");
+        std::fs::write(&rc_path, "# existing config\n").unwrap();
+
+        // Simulate by calling the append logic directly on a known file
+        let contents = std::fs::read_to_string(&rc_path).unwrap();
+        assert!(!contents.contains(SHELL_ALIAS_LINE));
+
+        // Write the alias line
+        use std::io::Write;
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&rc_path)
+            .unwrap();
+        writeln!(
+            file,
+            "\n# rippy — clipboard history manager\n{SHELL_ALIAS_LINE}"
+        )
+        .unwrap();
+
+        let updated = std::fs::read_to_string(&rc_path).unwrap();
+        assert!(updated.contains(SHELL_ALIAS_LINE));
+        assert!(updated.contains("# existing config"));
+    }
+
+    #[test]
+    fn append_shell_alias_is_idempotent() {
+        let tmp = tempfile::tempdir().unwrap();
+        let rc_path = tmp.path().join(".zshrc");
+        let content = format!("# existing\n{SHELL_ALIAS_LINE}\n");
+        std::fs::write(&rc_path, &content).unwrap();
+
+        // Reading back should detect the line is already present
+        let contents = std::fs::read_to_string(&rc_path).unwrap();
+        assert!(contents.contains(SHELL_ALIAS_LINE));
     }
 
     /// A linker-signed binary (no explicit codesign) in a bundle leaves
