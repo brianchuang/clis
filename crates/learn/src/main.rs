@@ -4,6 +4,7 @@ use std::process;
 
 use clap::{Parser, Subcommand};
 
+use learn::commands::COMMANDS;
 use learn::config::{load_vault_config, resolve_vault_path, write_config_pointer};
 use learn::parse::concept::parse_concept;
 use learn::parse::review::{parse_answered_reviews, parse_graded_items, resolve_concept_path};
@@ -159,12 +160,23 @@ fn main() {
                 println!("Skipping Templates/concept.md (exists, use --force to overwrite)");
             }
 
+            let commands_dir = vault_path.join(".claude").join("commands");
+            fs::create_dir_all(&commands_dir).unwrap();
+            for cmd in COMMANDS {
+                let cmd_path = commands_dir.join(cmd.filename);
+                if force || !cmd_path.exists() {
+                    fs::write(&cmd_path, cmd.content).unwrap();
+                }
+            }
+
             if let Err(e) = write_config_pointer(&vault_path) {
                 eprintln!("Warning: could not write config pointer: {e}");
             }
 
             println!("Vault initialized at {}", vault_path.display());
-            println!("Created: Concepts/, Reviews/, Templates/, .learning-system/");
+            println!(
+                "Created: Concepts/, Reviews/, Templates/, .learning-system/, .claude/commands/"
+            );
         }
 
         Commands::Status { vault } => {

@@ -38,22 +38,26 @@ fn parse_blocks(raw: &str) -> Vec<ParsedBlock> {
     }
     positions.push(raw.len());
 
+    let term_re = Regex::new(r"(?m)^### (.+)").unwrap();
+    let prompt_type_re = Regex::new(r"(?m)^Prompt Type:\s*(.+)").unwrap();
+    let prompt_re = Regex::new(r"(?m)^Prompt:\s*(.+)").unwrap();
+    let score_re = Regex::new(r"(?m)^Score:\s*(\d+)").unwrap();
+    let feedback_re = Regex::new(r"(?m)^Feedback:\s*(.+)").unwrap();
+    let hint_re = Regex::new(r"(?m)^Hint:\s*(.+)").unwrap();
+
     for window in positions.windows(2) {
         let block = &raw[window[0]..window[1]];
 
-        let term_re = Regex::new(r"(?m)^### (.+)").unwrap();
         let term = match term_re.captures(block) {
             Some(cap) => cap[1].trim().to_string(),
             None => continue,
         };
 
-        let prompt_type_re = Regex::new(r"(?m)^Prompt Type:\s*(.+)").unwrap();
         let prompt_type = prompt_type_re
             .captures(block)
             .map(|c| c[1].trim().to_string())
             .unwrap_or_default();
 
-        let prompt_re = Regex::new(r"(?m)^Prompt:\s*(.+)").unwrap();
         let prompt = prompt_re
             .captures(block)
             .map(|c| c[1].trim().to_string())
@@ -78,15 +82,12 @@ fn parse_blocks(raw: &str) -> Vec<ParsedBlock> {
             ans
         };
 
-        let score_re = Regex::new(r"(?m)^Score:\s*(\d+)").unwrap();
         let score = score_re
             .captures(block)
             .map(|c| c[1].parse::<u32>().unwrap());
 
-        let feedback_re = Regex::new(r"(?m)^Feedback:\s*(.+)").unwrap();
         let feedback = feedback_re.captures(block).map(|c| c[1].trim().to_string());
 
-        let hint_re = Regex::new(r"(?m)^Hint:\s*(.+)").unwrap();
         let hint = hint_re.captures(block).map(|c| c[1].trim().to_string());
 
         results.push(ParsedBlock {
