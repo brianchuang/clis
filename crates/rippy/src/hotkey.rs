@@ -83,7 +83,6 @@ pub fn check_listen_permission(prompt: bool) -> bool {
     }
 }
 
-
 struct HotkeyContext {
     keycode: u16,
     modifier_mask: u64,
