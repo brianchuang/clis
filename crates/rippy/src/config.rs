@@ -16,6 +16,10 @@ pub struct HistoryConfig {
     /// Maximum number of entries to keep. Oldest entries are pruned on insert.
     #[serde(default = "default_max_entries")]
     pub max_entries: usize,
+    /// Auto-delete entries whose clipboard content disappears within this many seconds
+    /// (e.g. password manager copies). 0 = disabled.
+    #[serde(default)]
+    pub auto_expire_seconds: u64,
 }
 
 fn default_max_entries() -> usize {
@@ -26,6 +30,7 @@ impl Default for HistoryConfig {
     fn default() -> Self {
         Self {
             max_entries: default_max_entries(),
+            auto_expire_seconds: 0,
         }
     }
 }
@@ -165,6 +170,25 @@ pub fn modifiers_mask(names: &[String]) -> u64 {
         .fold(0, |acc, f| acc | f)
 }
 
+/// Convert a HotkeyConfig to a macOS pbs key equivalent string for
+/// assigning keyboard shortcuts to Services via `defaults write pbs`.
+/// Format: modifier symbols followed by lowercase key.
+/// Symbols: @ = Cmd, $ = Shift, ^ = Ctrl, ~ = Option
+pub fn pbs_key_equivalent(cfg: &HotkeyConfig) -> String {
+    let mut eq = String::new();
+    for m in &cfg.modifiers {
+        match m.to_lowercase().as_str() {
+            "cmd" | "command" => eq.push('@'),
+            "shift" => eq.push('$'),
+            "ctrl" | "control" => eq.push('^'),
+            "alt" | "option" | "opt" => eq.push('~'),
+            _ => {}
+        }
+    }
+    eq.push_str(&cfg.key.to_lowercase());
+    eq
+}
+
 /// Format a hotkey config as a human-readable string.
 pub fn format_hotkey(cfg: &HotkeyConfig) -> String {
     let mods: Vec<&str> = cfg
@@ -189,6 +213,7 @@ mod tests {
     fn default_config_has_max_entries() {
         let cfg = Config::default();
         assert_eq!(cfg.history.max_entries, 10_000);
+        assert_eq!(cfg.history.auto_expire_seconds, 0);
     }
 
     #[test]
@@ -199,6 +224,18 @@ max_entries = 500
 "#;
         let cfg: Config = toml::from_str(toml_str).unwrap();
         assert_eq!(cfg.history.max_entries, 500);
+        assert_eq!(cfg.history.auto_expire_seconds, 0);
+    }
+
+    #[test]
+    fn parse_config_with_auto_expire() {
+        let toml_str = r#"
+[history]
+max_entries = 1000
+auto_expire_seconds = 15
+"#;
+        let cfg: Config = toml::from_str(toml_str).unwrap();
+        assert_eq!(cfg.history.auto_expire_seconds, 15);
     }
 
     #[test]
@@ -340,6 +377,42 @@ key = "v"
         assert_eq!(mask, modifier_flag("cmd").unwrap());
     }
 
+    // --- pbs_key_equivalent ---
+
+    #[test]
+    fn pbs_key_equivalent_default_cmd_shift_v() {
+        let cfg = HotkeyConfig::default();
+        assert_eq!(pbs_key_equivalent(&cfg), "@$v");
+    }
+
+    #[test]
+    fn pbs_key_equivalent_ctrl_alt() {
+        let cfg = HotkeyConfig {
+            key: "f5".into(),
+            modifiers: vec!["ctrl".into(), "alt".into()],
+        };
+        assert_eq!(pbs_key_equivalent(&cfg), "^~f5");
+    }
+
+    #[test]
+    fn pbs_key_equivalent_no_modifiers() {
+        let cfg = HotkeyConfig {
+            key: "space".into(),
+            modifiers: vec![],
+        };
+        assert_eq!(pbs_key_equivalent(&cfg), "space");
+    }
+
+    #[test]
+    fn pbs_key_equivalent_aliases() {
+        let cfg = HotkeyConfig {
+            key: "a".into(),
+            modifiers: vec!["command".into(), "option".into(), "control".into()],
+        };
+        // command → @, option → ~, control → ^
+        assert_eq!(pbs_key_equivalent(&cfg), "@~^a");
+    }
+
     // --- format_hotkey ---
 
     #[test]
@@ -379,7 +452,10 @@ key = "v"
             terminal: TerminalConfig {
                 app: "Alacritty".into(),
             },
-            history: HistoryConfig { max_entries: 500 },
+            history: HistoryConfig {
+                max_entries: 500,
+                auto_expire_seconds: 15,
+            },
         };
         cfg.save(tmp.path()).unwrap();
         let loaded = Config::load(tmp.path());
@@ -387,6 +463,7 @@ key = "v"
         assert_eq!(loaded.hotkey.modifiers, vec!["ctrl", "alt"]);
         assert_eq!(loaded.terminal.app, "Alacritty");
         assert_eq!(loaded.history.max_entries, 500);
+        assert_eq!(loaded.history.auto_expire_seconds, 15);
     }
 
     #[test]

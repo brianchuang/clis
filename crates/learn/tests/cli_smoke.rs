@@ -195,3 +195,136 @@ fn review_generate_creates_file() {
         .collect();
     assert_eq!(reviews.len(), 1);
 }
+
+#[test]
+fn review_grade_auto_outputs_json() {
+    let dir = TempDir::new().unwrap();
+    learn_bin()
+        .args(["init", "--vault", dir.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+
+    // Create a concept note
+    fs::write(
+        dir.path().join("Concepts/Token Bucket.md"),
+        "---\nterm: Token Bucket\ndomain: Systems\n---\nA token bucket controls request rate by accumulating tokens.\n",
+    )
+    .unwrap();
+
+    // Create a review file with an answered but ungraded item
+    fs::create_dir_all(dir.path().join("Reviews")).unwrap();
+    fs::write(
+        dir.path().join("Reviews/2025-01-15.md"),
+        r#"---
+type: review-session
+date: 2025-01-15
+---
+
+# Daily Recall — 2025-01-15
+
+### Token Bucket
+Prompt Type: definition
+Prompt: Explain your understanding of Token Bucket.
+
+My answer:
+It controls rate by accumulating tokens over time.
+
+Score:
+Feedback:
+Hint:
+Next review:
+"#,
+    )
+    .unwrap();
+
+    let output = learn_bin()
+        .args([
+            "review",
+            "grade",
+            "--auto",
+            "--vault",
+            dir.path().to_str().unwrap(),
+            "--file",
+            dir.path().join("Reviews/2025-01-15.md").to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Parse the JSON output
+    let json: serde_json::Value =
+        serde_json::from_str(stdout.trim()).expect("should be valid JSON");
+    assert!(json["review_file"].as_str().is_some());
+    assert!(json["rubric"].as_str().is_some());
+
+    let items = json["items"].as_array().unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["term"], "Token Bucket");
+    assert_eq!(items[0]["prompt_type"], "definition");
+    assert!(!items[0]["answer"].as_str().unwrap().is_empty());
+    assert!(!items[0]["concept_body"].as_str().unwrap().is_empty());
+}
+
+#[test]
+fn review_grade_auto_skips_already_graded() {
+    let dir = TempDir::new().unwrap();
+    learn_bin()
+        .args(["init", "--vault", dir.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+
+    fs::write(
+        dir.path().join("Concepts/Token Bucket.md"),
+        "---\nterm: Token Bucket\n---\nContent.\n",
+    )
+    .unwrap();
+
+    // Review file where one item is already graded
+    fs::create_dir_all(dir.path().join("Reviews")).unwrap();
+    fs::write(
+        dir.path().join("Reviews/2025-01-15.md"),
+        r#"---
+type: review-session
+date: 2025-01-15
+---
+
+# Daily Recall — 2025-01-15
+
+### Token Bucket
+Prompt Type: definition
+Prompt: Explain Token Bucket.
+
+My answer:
+It controls rate.
+
+Score: 4
+Feedback: Good.
+Hint: Consider burst behavior.
+Next review: 5 day(s)
+"#,
+    )
+    .unwrap();
+
+    let output = learn_bin()
+        .args([
+            "review",
+            "grade",
+            "--auto",
+            "--vault",
+            dir.path().to_str().unwrap(),
+            "--file",
+            dir.path().join("Reviews/2025-01-15.md").to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    assert!(stdout.contains("No answered items awaiting grades"));
+}

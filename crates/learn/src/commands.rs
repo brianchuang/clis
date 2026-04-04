@@ -16,7 +16,7 @@ Steps:
 pub const REVIEW_GRADE: &str = r#"Grade today's review session answers.
 
 Steps:
-1. Run `learn review grade --vault $ARGUMENTS` to check for answered items (use current directory if no argument given)
+1. Run `learn review grade --auto --vault $ARGUMENTS` to get answered items as JSON with concept bodies (use current directory if no argument given)
 2. If there are answered items awaiting grades, read the review file (Reviews/YYYY-MM-DD.md)
 3. For each answered item:
    - Read the corresponding concept note from Concepts/
