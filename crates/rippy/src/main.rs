@@ -3,6 +3,7 @@ mod config;
 mod db;
 mod hotkey;
 mod mcp;
+pub(crate) mod tag;
 mod terminal;
 mod tui;
 mod watcher;
@@ -425,7 +426,8 @@ fn format_entries(entries: &[db::ClipEntry], empty_msg: &str) -> String {
         .iter()
         .map(|e| {
             let pin = if e.pinned { "★" } else { " " };
-            format!("{pin} {:>5} │ {} │ {}", e.id, e.timestamp.format("%Y-%m-%d %H:%M:%S"), truncate(&e.content, 80))
+            let tag = tag::detect(&e.content).label();
+            format!("{pin} {:>5} │ {} │ {:<4} │ {}", e.id, e.timestamp.format("%Y-%m-%d %H:%M:%S"), tag, truncate(&e.content, 80))
         })
         .collect::<Vec<_>>()
         .join("\n")
