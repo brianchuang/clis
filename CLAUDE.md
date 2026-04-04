@@ -77,7 +77,43 @@ Tests in `tests/` as integration tests.
 
 Tests colocated in `#[cfg(test)]` modules.
 
-## Contribution workflow
+## Setup
+
+```bash
+git config core.hooksPath .githooks   # enable pre-commit and pre-push hooks
+```
+
+This is required for all contributors (human or agent). The hooks run `cargo fmt --check` on commit and `cargo test + clippy` on push.
+
+## Agent workflow
+
+All code in this repo is written by agents. Follow this process exactly:
+
+1. **Find work.** Check open GitHub issues first (`gh issue list`). If none match, check `ROADMAP.md` files in each crate for unchecked items. Do not invent work that isn't tracked.
+2. **Scope check.** If the issue or roadmap item is large (touches 3+ files, adds a new subcommand, or changes a public API), open a GitHub issue first and wait for approval. Small items (bug fix, single feature, test addition) can proceed directly.
+3. **Read before writing.** Read the files you plan to modify. Understand the existing patterns. Do not refactor surrounding code.
+4. **Branch** off `main`: `git checkout -b <owner>/<short-name>` (e.g. `brianchuang/pin-entries`)
+5. **Implement** the change. Follow existing code style. No unnecessary abstractions.
+6. **Write tests.** Every PR must include tests. See "Testing conventions" below.
+7. **Validate locally:**
+   ```bash
+   cargo fmt                                  # fix formatting
+   cargo test --workspace                     # all tests pass
+   cargo clippy --workspace -- -D warnings    # no warnings
+   ```
+8. **Commit** with a concise message: what changed and why (1-2 sentences).
+9. **Push and open a PR** against `main`. The PR template will guide you — fill in every section. CI runs automatically on the PR.
+10. **Wait for review.** Do not merge your own PR.
+
+### What agents must NOT do
+
+- Push directly to `main` — always use a PR
+- Merge their own PRs — a human (or designated reviewer agent) merges
+- Skip tests or add `#[ignore]` to make things pass
+- Modify files outside the scope of the issue they're working on
+- Add dependencies without justification in the PR description
+
+## Contribution workflow (manual)
 
 1. **Pick an item** from a crate's `ROADMAP.md` (open an issue first for large features)
 2. **Read the relevant source** before writing code — understand the existing patterns

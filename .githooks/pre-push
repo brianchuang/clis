@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "pre-push: running tests..."
+cargo test --workspace --quiet 2>&1 || {
+    echo ""
+    echo "ERROR: cargo test failed. Fix failing tests before pushing."
+    exit 1
+}
+
+echo "pre-push: running clippy..."
+cargo clippy --workspace -- -D warnings 2>&1 || {
+    echo ""
+    echo "ERROR: clippy found warnings. Fix them before pushing."
+    exit 1
+}
+
+echo "pre-push: all checks passed."

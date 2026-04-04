@@ -8,3 +8,12 @@ install-rippy:
 
 uninstall:
 	cargo uninstall cdt rippy
+
+setup:
+	git config core.hooksPath .githooks
+	@echo "Git hooks enabled."
+
+check:
+	cargo fmt --check
+	cargo clippy --workspace -- -D warnings
+	cargo test --workspace
