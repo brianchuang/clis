@@ -477,10 +477,8 @@ fn render_preview(f: &mut Frame, app: &mut App, area: Rect) {
             // Color diff stat lines: green for insertions, red for deletions
             if line.contains(" | ") {
                 let parts: Vec<&str> = line.splitn(2, " | ").collect();
-                let file_span = Span::styled(
-                    parts[0].to_string(),
-                    Style::default().fg(Color::White),
-                );
+                let file_span =
+                    Span::styled(parts[0].to_string(), Style::default().fg(Color::White));
                 let sep = Span::styled(" | ", Style::default().fg(Color::DarkGray));
                 let stat_text = parts.get(1).unwrap_or(&"");
                 let stat_span = Span::styled(
