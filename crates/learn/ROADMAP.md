@@ -25,7 +25,7 @@ The basic review cycle: create concepts, generate sessions, grade answers.
 
 Make the CLI a first-class tool for Claude Code agents.
 
-- [ ] `.claude/commands/` templates for review-generate, review-grade, concept-refine
+- [x] `.claude/commands/` templates for review-generate, review-grade, concept-refine
 - [ ] `learn review grade --auto` — agent grades answers using rubric from CLAUDE.md
 - [ ] `learn concept refine --apply` — write AI suggestions to frontmatter with confirmation
 - [ ] MCP server for vault access (list concepts, query due, read note body)

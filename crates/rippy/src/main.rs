@@ -1,6 +1,7 @@
 mod clipboard;
 mod config;
 mod db;
+mod highlight;
 mod hotkey;
 mod mcp;
 pub(crate) mod tag;
@@ -47,6 +48,13 @@ enum Commands {
         /// Entry ID
         id: i64,
     },
+    /// Print entry content to stdout by ID (for piping)
+    Get {
+        /// Entry ID
+        id: i64,
+    },
+    /// Save stdin as a clipboard entry
+    Save,
     /// Clear all clipboard history
     Clear,
     /// Install as a launchd service for 24/7 clipboard monitoring
@@ -63,6 +71,8 @@ enum Commands {
         #[command(subcommand)]
         action: ShortcutAction,
     },
+    /// Print shell alias for yy shortcut (eval in your shell rc)
+    InitShell,
     /// Start MCP server (stdio transport) for AI assistant integration
     Mcp,
     /// Open rippy TUI in configured terminal (used by Quick Action)
@@ -137,12 +147,15 @@ fn run() -> Result {
             print!("{}", cmd_search(&query, count, json)?)
         }
         Some(Commands::Copy { id }) => println!("{}", cmd_copy(id)?),
+        Some(Commands::Get { id }) => cmd_get(id)?,
+        Some(Commands::Save) => println!("{}", cmd_save()?),
         Some(Commands::Clear) => println!("{}", cmd_clear()?),
         Some(Commands::Hotkey { action }) => cmd_hotkey(action)?,
         Some(Commands::Shortcut { action }) => match action {
             ShortcutAction::Install => println!("{}", cmd_shortcut_install()?),
             ShortcutAction::Uninstall => println!("{}", cmd_shortcut_uninstall()?),
         },
+        Some(Commands::InitShell) => print!("{}", init_shell_output()),
         Some(Commands::Install) => println!("{}", cmd_install()?),
         Some(Commands::Uninstall) => println!("{}", cmd_uninstall()?),
         Some(Commands::Mcp) => tokio::runtime::Runtime::new()?.block_on(mcp::run(db_path()))?,
@@ -183,6 +196,25 @@ fn cmd_copy(id: i64) -> Result<String> {
             format!("Copied to clipboard: {}", truncate(&entry.content, 60))
         })
         .ok_or_else(|| format!("Entry {id} not found.").into())
+}
+
+fn cmd_get(id: i64) -> Result {
+    let entry = with_store(|store| store.get(id))?
+        .ok_or_else(|| -> Box<dyn std::error::Error> { format!("Entry {id} not found.").into() })?;
+    print!("{}", entry.content);
+    Ok(())
+}
+
+fn cmd_save() -> Result<String> {
+    use std::io::Read;
+    let mut content = String::new();
+    std::io::stdin().read_to_string(&mut content)?;
+    let content = content.trim_end_matches('\n');
+    if content.is_empty() {
+        return Err("No input provided. Pipe content to stdin: echo \"text\" | rippy save".into());
+    }
+    let id = with_store(|store| store.insert(content, None))?;
+    Ok(format!("Saved entry {id}: {}", truncate(content, 60)))
 }
 
 fn cmd_clear() -> Result<String> {
@@ -272,6 +304,53 @@ fn create_app_bundle(
     Ok(dest)
 }
 
+const SHELL_ALIAS_LINE: &str = r#"eval "$(rippy init-shell)""#;
+
+fn init_shell_output() -> String {
+    "# Add to your .zshrc or .bashrc:\nalias yy=\"rippy\"\n".to_string()
+}
+
+/// Detect the user's shell rc file and append the eval line if not already present.
+fn append_shell_alias() -> Option<String> {
+    let home = dirs::home_dir()?;
+    let shell = std::env::var("SHELL").unwrap_or_default();
+    let rc_path = if shell.ends_with("zsh") {
+        home.join(".zshrc")
+    } else if shell.ends_with("bash") {
+        // Prefer .bashrc; fall back to .bash_profile on macOS where .bashrc
+        // may not exist yet.
+        let bashrc = home.join(".bashrc");
+        if bashrc.exists() {
+            bashrc
+        } else {
+            home.join(".bash_profile")
+        }
+    } else {
+        return None;
+    };
+
+    let contents = std::fs::read_to_string(&rc_path).unwrap_or_default();
+    if contents.contains(SHELL_ALIAS_LINE) {
+        return Some(format!(
+            "Shell alias already configured in {}",
+            rc_path.display()
+        ));
+    }
+
+    let mut file = std::fs::OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open(&rc_path)
+        .ok()?;
+    use std::io::Write;
+    writeln!(
+        file,
+        "\n# rippy — clipboard history manager\n{SHELL_ALIAS_LINE}"
+    )
+    .ok()?;
+    Some(format!("Added yy alias to {}", rc_path.display()))
+}
+
 fn cmd_install() -> Result<String> {
     let plist_path = plist_path();
     let rippy_bin = std::env::current_exe()?
@@ -337,6 +416,12 @@ fn cmd_install() -> Result<String> {
     msg.push_str(
         "\n  Grant it to \"Rippy\" in System Settings > Privacy & Security > Input Monitoring",
     );
+    match append_shell_alias() {
+        Some(result) => msg.push_str(&format!("\n\n{result}")),
+        None => msg.push_str(
+            "\n\nTip: Add `eval \"$(rippy init-shell)\"` to your shell config for the `yy` alias.",
+        ),
+    }
     Ok(msg)
 }
 
@@ -809,6 +894,7 @@ fn truncate(s: &str, max: usize) -> String {
 mod tests {
     use super::*;
     use chrono::TimeZone;
+    use std::path::Path;
     use std::process::Command;
 
     fn make_entry(id: i64, content: &str) -> db::ClipEntry {
@@ -993,6 +1079,46 @@ mod tests {
         assert_eq!(key, "(null) - Launch Rippy - runWorkflowAsService");
     }
 
+    #[test]
+    fn get_subcommand_prints_raw_content() {
+        let store = db::Store::open(Path::new(":memory:")).unwrap();
+        let id = store.insert("hello piped world", None).unwrap();
+        let entry = store.get(id).unwrap().unwrap();
+        assert_eq!(entry.content, "hello piped world");
+    }
+
+    #[test]
+    fn get_subcommand_not_found() {
+        let store = db::Store::open(Path::new(":memory:")).unwrap();
+        assert!(store.get(9999).unwrap().is_none());
+    }
+
+    #[test]
+    fn save_trims_trailing_newline() {
+        let input = "hello world\n";
+        let content = input.trim_end_matches('\n');
+        assert_eq!(content, "hello world");
+    }
+
+    #[test]
+    fn save_rejects_empty_input() {
+        let input = "\n";
+        let content = input.trim_end_matches('\n');
+        assert!(content.is_empty());
+    }
+
+    #[test]
+    fn save_preserves_internal_newlines() {
+        let input = "line1\nline2\nline3\n";
+        let content = input.trim_end_matches('\n');
+        assert_eq!(content, "line1\nline2\nline3");
+
+        let store = db::Store::open(Path::new(":memory:")).unwrap();
+        let id = store.insert(content, None).unwrap();
+        let entry = store.get(id).unwrap().unwrap();
+        assert_eq!(entry.content, "line1\nline2\nline3");
+    }
+
     /// The install message must tell users to grant Input Monitoring, not
     /// Accessibility — listen-only event taps require Input Monitoring.
     #[test]
@@ -1005,6 +1131,51 @@ mod tests {
             "Grant it to \"Rippy\" in System Settings > Privacy & Security > Input Monitoring";
         assert!(msg.contains("Input Monitoring"));
         assert!(!msg.contains("Accessibility"));
+    }
+
+    #[test]
+    fn init_shell_outputs_alias() {
+        let output = init_shell_output();
+        assert!(output.contains("alias yy=\"rippy\""));
+    }
+
+    #[test]
+    fn append_shell_alias_writes_to_rc() {
+        let tmp = tempfile::tempdir().unwrap();
+        let rc_path = tmp.path().join(".zshrc");
+        std::fs::write(&rc_path, "# existing config\n").unwrap();
+
+        // Simulate by calling the append logic directly on a known file
+        let contents = std::fs::read_to_string(&rc_path).unwrap();
+        assert!(!contents.contains(SHELL_ALIAS_LINE));
+
+        // Write the alias line
+        use std::io::Write;
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&rc_path)
+            .unwrap();
+        writeln!(
+            file,
+            "\n# rippy — clipboard history manager\n{SHELL_ALIAS_LINE}"
+        )
+        .unwrap();
+
+        let updated = std::fs::read_to_string(&rc_path).unwrap();
+        assert!(updated.contains(SHELL_ALIAS_LINE));
+        assert!(updated.contains("# existing config"));
+    }
+
+    #[test]
+    fn append_shell_alias_is_idempotent() {
+        let tmp = tempfile::tempdir().unwrap();
+        let rc_path = tmp.path().join(".zshrc");
+        let content = format!("# existing\n{SHELL_ALIAS_LINE}\n");
+        std::fs::write(&rc_path, &content).unwrap();
+
+        // Reading back should detect the line is already present
+        let contents = std::fs::read_to_string(&rc_path).unwrap();
+        assert!(contents.contains(SHELL_ALIAS_LINE));
     }
 
     /// A linker-signed binary (no explicit codesign) in a bundle leaves

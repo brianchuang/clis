@@ -85,6 +85,16 @@ git config core.hooksPath .githooks   # enable pre-commit and pre-push hooks
 
 This is required for all contributors (human or agent). The hooks run `cargo fmt --check` on commit and `cargo test + clippy` on push.
 
+## Quick start keyword
+
+If the user's message is just **`work`** (optionally followed by a crate name or issue number), follow the full agent workflow below end-to-end:
+
+- `work` — find the next small unblocked item and complete it through PR creation
+- `work rippy` — scope the search to that crate's issues and roadmap
+- `work #14` — work on that specific GitHub issue
+
+Pick the smallest unblocked item, implement it fully (including tests), and open a PR. Then stop.
+
 ## Agent workflow
 
 All code in this repo is written by agents. Follow this process exactly:

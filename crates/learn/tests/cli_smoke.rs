@@ -30,6 +30,67 @@ fn init_creates_vault_structure() {
 }
 
 #[test]
+fn init_creates_claude_commands() {
+    let dir = TempDir::new().unwrap();
+    learn_bin()
+        .args(["init", "--vault", dir.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+
+    let commands_dir = dir.path().join(".claude/commands");
+    assert!(commands_dir.is_dir());
+    assert!(commands_dir.join("review-generate.md").exists());
+    assert!(commands_dir.join("review-grade.md").exists());
+    assert!(commands_dir.join("concept-refine.md").exists());
+
+    let content = fs::read_to_string(commands_dir.join("review-generate.md")).unwrap();
+    assert!(content.contains("learn review generate"));
+}
+
+#[test]
+fn init_does_not_overwrite_existing_commands() {
+    let dir = TempDir::new().unwrap();
+    learn_bin()
+        .args(["init", "--vault", dir.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+
+    // User customizes a command
+    let cmd_path = dir.path().join(".claude/commands/review-generate.md");
+    fs::write(&cmd_path, "custom content").unwrap();
+
+    // Re-init without --force should preserve the custom content
+    learn_bin()
+        .args(["init", "--vault", dir.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+
+    let content = fs::read_to_string(&cmd_path).unwrap();
+    assert_eq!(content, "custom content");
+}
+
+#[test]
+fn init_force_overwrites_commands() {
+    let dir = TempDir::new().unwrap();
+    learn_bin()
+        .args(["init", "--vault", dir.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+
+    let cmd_path = dir.path().join(".claude/commands/review-generate.md");
+    fs::write(&cmd_path, "custom content").unwrap();
+
+    // Re-init with --force should overwrite
+    learn_bin()
+        .args(["init", "--vault", dir.path().to_str().unwrap(), "--force"])
+        .output()
+        .unwrap();
+
+    let content = fs::read_to_string(&cmd_path).unwrap();
+    assert!(content.contains("learn review generate"));
+}
+
+#[test]
 fn init_force_overwrites() {
     let dir = TempDir::new().unwrap();
 

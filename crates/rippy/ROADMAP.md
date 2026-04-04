@@ -11,7 +11,7 @@ This roadmap captures the vision for where rippy is headed.
 
 Ship what exists with better ergonomics.
 
-- [ ] Suggest `yy` alias in install output
+- [x] Suggest `yy` alias in install output
 - [x] `--json` flag on `list` and `search` for scriptability
 - [ ] Auto-expire entries from password managers (detect short-lived clipboard copies that disappear within ~10s)
 - [x] Configurable history retention with `max_entries` in config.toml (auto-prune oldest on insert)
@@ -29,8 +29,8 @@ Make the picker more powerful without losing simplicity.
 
 Unix philosophy: composable, scriptable, searchable.
 
-- [ ] `yy get ID` — print entry to stdout for piping
-- [ ] `echo "foo" | yy save` — capture stdin as a clipboard entry
+- [x] `yy get ID` — print entry to stdout for piping
+- [x] `echo "foo" | yy save` — capture stdin as a clipboard entry
 - [ ] Semantic search via local embeddings (see below)
 - [ ] Multi-select — pick several entries and paste as a batch
 - [ ] Snippets mode — persistent saved clips separate from ephemeral history
