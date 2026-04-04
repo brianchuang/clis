@@ -60,6 +60,10 @@ The unique value cdt adds: understanding the git layer across your whole fleet.
   ```
   The "what happened while I was at lunch?" command.
 
+## v0.6 — Install experience
+
+- [ ] **Auto-append shell integration during install** — detect shell rc file and append `eval "$(cdt init-shell)"` automatically, with idempotency check
+
 ---
 
 ## Out of scope

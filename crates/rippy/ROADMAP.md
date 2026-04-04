@@ -11,7 +11,7 @@ This roadmap captures the vision for where rippy is headed.
 
 Ship what exists with better ergonomics.
 
-- [ ] Suggest `yy` alias in install output
+- [x] Suggest `yy` alias in install output
 - [x] `--json` flag on `list` and `search` for scriptability
 - [ ] Auto-expire entries from password managers (detect short-lived clipboard copies that disappear within ~10s)
 - [x] Configurable history retention with `max_entries` in config.toml (auto-prune oldest on insert)
