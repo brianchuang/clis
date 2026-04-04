@@ -18,6 +18,7 @@ enum Action {
     Nav(NavAction),
     CopyAndQuit,
     DeleteSelected,
+    TogglePinSelected,
     TogglePreview,
     ScrollPreviewDown,
     ScrollPreviewUp,
@@ -117,8 +118,13 @@ fn handle_key(key: crossterm::event::KeyEvent, mode: Mode, pending: &mut Option<
         return Action::Nav(NavAction::Noop);
     }
 
-    // Normal mode: p toggles preview, Ctrl+j/k scrolls preview
+    // Normal mode: s toggles pin, p toggles preview, Ctrl+j/k scrolls preview
     if mode == Mode::Normal {
+        if let KeyCode::Char('s') = key.code {
+            if key.modifiers.is_empty() {
+                return Action::TogglePinSelected;
+            }
+        }
         if let KeyCode::Char('p') = key.code {
             if key.modifiers.is_empty() {
                 return Action::TogglePreview;
@@ -195,6 +201,13 @@ fn apply_action(app: &mut App, action: Action) {
             if let Some(entry) = app.selected_entry() {
                 let id = entry.id;
                 app.store.delete(id).ok();
+                app.refresh();
+            }
+        }
+        Action::TogglePinSelected => {
+            if let Some(entry) = app.selected_entry() {
+                let id = entry.id;
+                app.store.toggle_pin(id).ok();
                 app.refresh();
             }
         }
@@ -321,6 +334,7 @@ fn render(f: &mut Frame, app: &mut App) {
             ("g g", "Go to top"),
             ("G", "Go to bottom"),
             ("Ctrl-d / Ctrl-u", "Half-page down / up"),
+            ("s", "Toggle pin (starred)"),
             ("p", "Toggle preview pane"),
             ("Ctrl-j / Ctrl-k", "Scroll preview down / up"),
             ("/", "Search"),
@@ -357,6 +371,7 @@ fn render_clip_list<'a>(
 fn render_list_item(entry: &ClipEntry, is_selected: bool, copied_id: Option<i64>) -> ListItem<'_> {
     let preview: String = entry.content.lines().next().unwrap_or("").chars().take(200).collect();
     let time = entry.timestamp.format("%m/%d %H:%M");
+    let pin = if entry.pinned { "★ " } else { "  " };
 
     let style = match (is_selected, Some(entry.id) == copied_id) {
         (true, _) => Style::default().bg(Color::DarkGray).fg(Color::White),
@@ -365,9 +380,11 @@ fn render_list_item(entry: &ClipEntry, is_selected: bool, copied_id: Option<i64>
     };
 
     let time_color = if is_selected { Color::Cyan } else { Color::DarkGray };
+    let pin_color = if is_selected { Color::Yellow } else { Color::DarkGray };
 
     ListItem::new(Line::from(vec![
-        Span::styled(format!(" {time} "), style.patch(Style::default().fg(time_color))),
+        Span::styled(pin, style.patch(Style::default().fg(pin_color))),
+        Span::styled(format!("{time} "), style.patch(Style::default().fg(time_color))),
         Span::styled(format!("\u{2502} {preview}"), style),
     ]))
 }
@@ -423,6 +440,7 @@ fn render_status_bar(count: usize, total: usize, copied_id: Option<i64>, mode: M
                     &count_str,
                     "j/k move",
                     "Enter copy",
+                    "s pin",
                     "dd delete",
                     "p preview",
                 ];

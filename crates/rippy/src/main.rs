@@ -423,7 +423,10 @@ fn format_entries(entries: &[db::ClipEntry], empty_msg: &str) -> String {
     }
     entries
         .iter()
-        .map(|e| format!("{:>5} │ {} │ {}", e.id, e.timestamp.format("%Y-%m-%d %H:%M:%S"), truncate(&e.content, 80)))
+        .map(|e| {
+            let pin = if e.pinned { "★" } else { " " };
+            format!("{pin} {:>5} │ {} │ {}", e.id, e.timestamp.format("%Y-%m-%d %H:%M:%S"), truncate(&e.content, 80))
+        })
         .collect::<Vec<_>>()
         .join("\n")
         + "\n"
@@ -453,6 +456,7 @@ mod tests {
             hash: "unused".to_string(),
             timestamp: chrono::Local.timestamp_opt(1700000000, 0).unwrap(),
             app_name: None,
+            pinned: false,
         }
     }
 

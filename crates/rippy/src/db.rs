@@ -12,6 +12,7 @@ pub struct ClipEntry {
     pub hash: String,
     pub timestamp: DateTime<Local>,
     pub app_name: Option<String>,
+    pub pinned: bool,
 }
 
 pub struct Store {
@@ -25,6 +26,7 @@ fn row_to_entry(row: &Row) -> Result<ClipEntry> {
         hash: row.get(2)?,
         timestamp: Local.timestamp_opt(row.get::<_, i64>(3)?, 0).unwrap(),
         app_name: row.get(4)?,
+        pinned: row.get::<_, i64>(5).unwrap_or(0) != 0,
     })
 }
 
@@ -49,12 +51,21 @@ impl Store {
                 content   TEXT NOT NULL,
                 hash      TEXT NOT NULL,
                 timestamp INTEGER NOT NULL,
-                app_name  TEXT
+                app_name  TEXT,
+                pinned    INTEGER NOT NULL DEFAULT 0
             );
             CREATE INDEX IF NOT EXISTS idx_clips_hash ON clips(hash);
             CREATE INDEX IF NOT EXISTS idx_clips_ts ON clips(timestamp DESC);
             CREATE INDEX IF NOT EXISTS idx_clips_content ON clips(content);",
         )?;
+        // Migration: add pinned column to existing databases
+        let has_pinned: bool = conn
+            .prepare("PRAGMA table_info(clips)")?
+            .query_map([], |row| row.get::<_, String>(1))?
+            .any(|name| name.as_deref() == Ok("pinned"));
+        if !has_pinned {
+            conn.execute_batch("ALTER TABLE clips ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;")?;
+        }
         Ok(Store { conn })
     }
 
@@ -84,7 +95,7 @@ impl Store {
     pub fn recent(&self, limit: usize) -> Result<Vec<ClipEntry>> {
         query_entries(
             &self.conn,
-            "SELECT id, content, hash, timestamp, app_name FROM clips ORDER BY timestamp DESC LIMIT ?1",
+            "SELECT id, content, hash, timestamp, app_name, pinned FROM clips ORDER BY pinned DESC, timestamp DESC LIMIT ?1",
             &[&(limit as i64)],
         )
     }
@@ -93,7 +104,7 @@ impl Store {
         let pattern = format!("%{query}%");
         query_entries(
             &self.conn,
-            "SELECT id, content, hash, timestamp, app_name FROM clips WHERE content LIKE ?1 ORDER BY timestamp DESC LIMIT ?2",
+            "SELECT id, content, hash, timestamp, app_name, pinned FROM clips WHERE content LIKE ?1 ORDER BY pinned DESC, timestamp DESC LIMIT ?2",
             &[&pattern as &dyn rusqlite::types::ToSql, &(limit as i64)],
         )
     }
@@ -101,11 +112,24 @@ impl Store {
     pub fn get(&self, id: i64) -> Result<Option<ClipEntry>> {
         self.conn
             .query_row(
-                "SELECT id, content, hash, timestamp, app_name FROM clips WHERE id = ?1",
+                "SELECT id, content, hash, timestamp, app_name, pinned FROM clips WHERE id = ?1",
                 params![id],
                 row_to_entry,
             )
             .optional()
+    }
+
+    pub fn toggle_pin(&self, id: i64) -> Result<bool> {
+        self.conn.execute(
+            "UPDATE clips SET pinned = CASE WHEN pinned = 0 THEN 1 ELSE 0 END WHERE id = ?1",
+            params![id],
+        )?;
+        // Return the new pinned state
+        self.conn
+            .query_row("SELECT pinned FROM clips WHERE id = ?1", params![id], |row| {
+                row.get::<_, i64>(0)
+            })
+            .map(|v| v != 0)
     }
 
     pub fn delete(&self, id: i64) -> Result<bool> {
@@ -131,19 +155,19 @@ impl Store {
             .map(|n| n as usize)
     }
 
-    /// Delete the oldest entries to keep at most `max_entries` in the store.
-    /// Returns the number of entries deleted.
+    /// Delete the oldest unpinned entries to keep at most `max_entries` in the store.
+    /// Pinned entries are never pruned. Returns the number of entries deleted.
     pub fn prune(&self, max_entries: usize) -> Result<usize> {
         let count = self.count()?;
         if count <= max_entries {
             return Ok(0);
         }
         let excess = count - max_entries;
-        self.conn.execute(
-            "DELETE FROM clips WHERE id IN (SELECT id FROM clips ORDER BY timestamp ASC LIMIT ?1)",
+        let deleted = self.conn.execute(
+            "DELETE FROM clips WHERE id IN (SELECT id FROM clips WHERE pinned = 0 ORDER BY timestamp ASC LIMIT ?1)",
             params![excess as i64],
         )?;
-        Ok(excess)
+        Ok(deleted)
     }
 }
 
@@ -164,6 +188,7 @@ mod tests {
             hash: "abc123".to_string(),
             timestamp: Local.timestamp_opt(1700000000, 0).unwrap(),
             app_name: Some("Terminal".to_string()),
+            pinned: false,
         };
         let json: serde_json::Value = serde_json::to_value(&entry).unwrap();
         assert_eq!(json["id"], 1);
@@ -181,6 +206,7 @@ mod tests {
             hash: "def456".to_string(),
             timestamp: Local.timestamp_opt(1700000000, 0).unwrap(),
             app_name: None,
+            pinned: false,
         };
         let json: serde_json::Value = serde_json::to_value(&entry).unwrap();
         assert!(json["app_name"].is_null());
@@ -295,6 +321,89 @@ mod tests {
         let count = store.clear().unwrap();
         assert_eq!(count, 2);
         assert!(store.recent(100).unwrap().is_empty());
+    }
+
+    #[test]
+    fn toggle_pin_pins_and_unpins() {
+        let store = temp_store();
+        let id = store.insert("pin me", None).unwrap();
+
+        assert!(!store.get(id).unwrap().unwrap().pinned);
+
+        let pinned = store.toggle_pin(id).unwrap();
+        assert!(pinned);
+        assert!(store.get(id).unwrap().unwrap().pinned);
+
+        let pinned = store.toggle_pin(id).unwrap();
+        assert!(!pinned);
+        assert!(!store.get(id).unwrap().unwrap().pinned);
+    }
+
+    #[test]
+    fn pinned_entries_appear_first_in_recent() {
+        let store = temp_store();
+        store.insert("old", None).unwrap();
+        store.conn.execute("UPDATE clips SET timestamp = 1000 WHERE content = 'old'", []).unwrap();
+
+        let new_id = store.insert("new", None).unwrap();
+        store.conn.execute("UPDATE clips SET timestamp = 2000 WHERE content = 'new'", []).unwrap();
+
+        let old_id = store.recent(10).unwrap().last().unwrap().id;
+        store.toggle_pin(old_id).unwrap();
+
+        let entries = store.recent(10).unwrap();
+        assert_eq!(entries[0].content, "old", "pinned entry should appear first");
+        assert!(entries[0].pinned);
+        assert_eq!(entries[1].content, "new");
+        assert!(!entries[1].pinned);
+    }
+
+    #[test]
+    fn prune_skips_pinned_entries() {
+        let store = temp_store();
+        for i in 0..5 {
+            store.insert(&format!("entry {i}"), None).unwrap();
+            store.conn.execute(
+                "UPDATE clips SET timestamp = ?1 WHERE content = ?2",
+                params![1000 + i, format!("entry {i}")],
+            ).unwrap();
+        }
+
+        // Pin the oldest entry (entry 0)
+        let oldest = store.recent(10).unwrap().last().unwrap().id;
+        store.toggle_pin(oldest).unwrap();
+
+        // Prune to 3 — should skip pinned entry 0 and delete entries 1 and 2
+        let pruned = store.prune(3).unwrap();
+        assert_eq!(pruned, 2);
+        assert_eq!(store.count().unwrap(), 3);
+
+        let remaining = store.recent(10).unwrap();
+        let contents: Vec<&str> = remaining.iter().map(|e| e.content.as_str()).collect();
+        assert!(contents.contains(&"entry 0"), "pinned entry should survive prune");
+        assert!(contents.contains(&"entry 3"));
+        assert!(contents.contains(&"entry 4"));
+    }
+
+    #[test]
+    fn serialize_clip_entry_includes_pinned() {
+        let entry = ClipEntry {
+            id: 1,
+            content: "test".to_string(),
+            hash: "abc".to_string(),
+            timestamp: Local.timestamp_opt(1700000000, 0).unwrap(),
+            app_name: None,
+            pinned: true,
+        };
+        let json: serde_json::Value = serde_json::to_value(&entry).unwrap();
+        assert_eq!(json["pinned"], true);
+    }
+
+    #[test]
+    fn new_entries_are_not_pinned() {
+        let store = temp_store();
+        let id = store.insert("fresh", None).unwrap();
+        assert!(!store.get(id).unwrap().unwrap().pinned);
     }
 }
 
