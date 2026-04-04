@@ -527,3 +527,117 @@ fn clamp_selection_after_filter_narrows() {
     assert_eq!(app.selected, 0);
     assert!(app.filtered.len() < 5);
 }
+
+// --- Preview pane ---
+
+#[test]
+fn preview_starts_hidden() {
+    let app = test_app();
+    assert!(!app.show_preview);
+    assert_eq!(app.preview_scroll, 0);
+}
+
+#[test]
+fn toggle_preview_shows_and_hides() {
+    let mut app = test_app();
+    apply_action(&mut app, Action::TogglePreview);
+    assert!(app.show_preview);
+    apply_action(&mut app, Action::TogglePreview);
+    assert!(!app.show_preview);
+}
+
+#[test]
+fn toggle_preview_resets_scroll() {
+    let mut app = test_app();
+    app.preview_scroll = 10;
+    apply_action(&mut app, Action::TogglePreview);
+    assert_eq!(app.preview_scroll, 0);
+}
+
+#[test]
+fn scroll_preview_down() {
+    let mut app = test_app();
+    app.show_preview = true;
+    apply_action(&mut app, Action::ScrollPreviewDown);
+    assert_eq!(app.preview_scroll, 3);
+    apply_action(&mut app, Action::ScrollPreviewDown);
+    assert_eq!(app.preview_scroll, 6);
+}
+
+#[test]
+fn scroll_preview_up() {
+    let mut app = test_app();
+    app.show_preview = true;
+    app.preview_scroll = 6;
+    apply_action(&mut app, Action::ScrollPreviewUp);
+    assert_eq!(app.preview_scroll, 3);
+    apply_action(&mut app, Action::ScrollPreviewUp);
+    assert_eq!(app.preview_scroll, 0);
+}
+
+#[test]
+fn scroll_preview_up_clamps_to_zero() {
+    let mut app = test_app();
+    app.preview_scroll = 1;
+    apply_action(&mut app, Action::ScrollPreviewUp);
+    assert_eq!(app.preview_scroll, 0);
+}
+
+#[test]
+fn selection_change_resets_preview_scroll() {
+    let mut app = test_app();
+    app.show_preview = true;
+    app.preview_scroll = 10;
+    apply_action(&mut app, Action::Nav(NavAction::MoveDown));
+    assert_eq!(app.selected, 1);
+    assert_eq!(app.preview_scroll, 0);
+}
+
+#[test]
+fn selection_unchanged_preserves_preview_scroll() {
+    let mut app = test_app();
+    app.show_preview = true;
+    app.preview_scroll = 5;
+    // MoveUp at top doesn't change selection
+    apply_action(&mut app, Action::Nav(NavAction::MoveUp));
+    assert_eq!(app.selected, 0);
+    assert_eq!(app.preview_scroll, 5);
+}
+
+// --- Preview key handling ---
+
+#[test]
+fn normal_p_toggles_preview() {
+    let mut pending = None;
+    let action = handle_key(make_key(KeyCode::Char('p')), Mode::Normal, &mut pending);
+    assert_eq!(action, Action::TogglePreview);
+}
+
+#[test]
+fn normal_ctrl_j_scrolls_preview_down() {
+    let mut pending = None;
+    let action = handle_key(
+        make_key_with_mods(KeyCode::Char('j'), KeyModifiers::CONTROL),
+        Mode::Normal,
+        &mut pending,
+    );
+    assert_eq!(action, Action::ScrollPreviewDown);
+}
+
+#[test]
+fn normal_ctrl_k_scrolls_preview_up() {
+    let mut pending = None;
+    let action = handle_key(
+        make_key_with_mods(KeyCode::Char('k'), KeyModifiers::CONTROL),
+        Mode::Normal,
+        &mut pending,
+    );
+    assert_eq!(action, Action::ScrollPreviewUp);
+}
+
+#[test]
+fn insert_p_types_char_not_preview() {
+    let mut pending = None;
+    let action = handle_key(make_key(KeyCode::Char('p')), Mode::Insert, &mut pending);
+    assert_eq!(action, Action::Nav(NavAction::TypeChar('p')));
+}

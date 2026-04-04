@@ -60,7 +60,16 @@ The unique value cdt adds: understanding the git layer across your whole fleet.
   ```
   The "what happened while I was at lunch?" command.
 
-## v0.6 — Install experience
+## v0.6 — TUI preview pane
+
+Inspect workspaces without leaving the TUI.
+
+- [x] **Diff preview pane** — press `p` to toggle a side panel showing `git diff --stat` for the selected worktree vs main. Answers "what did this agent change?" at a glance
+- [x] **Preview scrolling** — `Ctrl+j` / `Ctrl+k` to scroll the preview content
+- [x] **Lazy caching** — diff stat computed on first view per workspace, cached for the session
+- [x] **Colored diff stat** — file lines colored by change type (green additions, red deletions, yellow mixed)
+
+## v0.7 — Install experience
 
 - [ ] **Auto-append shell integration during install** — detect shell rc file and append `eval "$(cdt init-shell)"` automatically, with idempotency check
 

@@ -375,6 +375,49 @@ pub fn summarize(workspaces: &[Workspace]) -> String {
     }
 }
 
+/// Get `git diff --stat` for a workspace's branch against main.
+/// Returns the stat output as a string, or an error message.
+pub fn diff_stat(ws: &Workspace) -> String {
+    let branch = match &ws.branch {
+        Some(b) => b.as_str(),
+        None => return "No branch info available".to_string(),
+    };
+
+    // Find main branch ref
+    let main_ref = ["main", "master"]
+        .iter()
+        .find(|r| {
+            Command::new("git")
+                .args(["rev-parse", "--verify", r])
+                .current_dir(&ws.path)
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false)
+        })
+        .unwrap_or(&"main");
+
+    let output = Command::new("git")
+        .args(["diff", "--stat", &format!("{main_ref}...{branch}")])
+        .current_dir(&ws.path)
+        .output();
+
+    match output {
+        Ok(o) if o.status.success() => {
+            let text = String::from_utf8_lossy(&o.stdout).to_string();
+            if text.trim().is_empty() {
+                "No changes vs main".to_string()
+            } else {
+                text
+            }
+        }
+        Ok(o) => {
+            let err = String::from_utf8_lossy(&o.stderr);
+            format!("git diff failed: {}", err.trim())
+        }
+        Err(e) => format!("Failed to run git: {e}"),
+    }
+}
+
 /// Enrich workspaces with PR info by querying `gh` once per project.
 pub fn attach_pr_info(workspaces: &mut [Workspace]) {
     // Group by project to avoid redundant gh calls
