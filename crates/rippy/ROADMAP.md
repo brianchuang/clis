@@ -22,15 +22,15 @@ Make the picker more powerful without losing simplicity.
 
 - [x] Preview pane — show full content of selected entry (scrollable)
 - [ ] Syntax highlighting for code snippets in preview
-- [ ] Entry pinning — star entries so they never expire or get pruned
-- [ ] Auto-detected content tags (url, code, path, text) shown in list view
+- [x] Entry pinning — star entries so they never expire or get pruned
+- [x] Auto-detected content tags (url, code, path, text) shown in list view
 
 ## v0.3 — Power User
 
 Unix philosophy: composable, scriptable, searchable.
 
-- [ ] `yy get ID` — print entry to stdout for piping
-- [ ] `echo "foo" | yy save` — capture stdin as a clipboard entry
+- [x] `yy get ID` — print entry to stdout for piping
+- [x] `echo "foo" | yy save` — capture stdin as a clipboard entry
 - [ ] Semantic search via local embeddings (see below)
 - [ ] Multi-select — pick several entries and paste as a batch
 - [ ] Snippets mode — persistent saved clips separate from ephemeral history

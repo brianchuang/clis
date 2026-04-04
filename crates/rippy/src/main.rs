@@ -3,6 +3,7 @@ mod config;
 mod db;
 mod hotkey;
 mod mcp;
+pub(crate) mod tag;
 mod terminal;
 mod tui;
 mod watcher;
@@ -46,6 +47,13 @@ enum Commands {
         /// Entry ID
         id: i64,
     },
+    /// Print entry content to stdout by ID (for piping)
+    Get {
+        /// Entry ID
+        id: i64,
+    },
+    /// Save stdin as a clipboard entry
+    Save,
     /// Clear all clipboard history
     Clear,
     /// Install as a launchd service for 24/7 clipboard monitoring
@@ -92,9 +100,13 @@ fn data_dir() -> PathBuf {
     dir
 }
 
-fn db_path() -> PathBuf { data_dir().join("history.db") }
+fn db_path() -> PathBuf {
+    data_dir().join("history.db")
+}
 
-fn with_store<T>(f: impl FnOnce(&db::Store) -> std::result::Result<T, rusqlite::Error>) -> Result<T> {
+fn with_store<T>(
+    f: impl FnOnce(&db::Store) -> std::result::Result<T, rusqlite::Error>,
+) -> Result<T> {
     let store = db::Store::open(&db_path())?;
     Ok(f(&store)?)
 }
@@ -112,8 +124,12 @@ fn run() -> Result {
     match cli.command {
         None => tui::run(&db_path())?,
         Some(Commands::List { count, json }) => print!("{}", cmd_list(count, json)?),
-        Some(Commands::Search { query, count, json }) => print!("{}", cmd_search(&query, count, json)?),
+        Some(Commands::Search { query, count, json }) => {
+            print!("{}", cmd_search(&query, count, json)?)
+        }
         Some(Commands::Copy { id }) => println!("{}", cmd_copy(id)?),
+        Some(Commands::Get { id }) => cmd_get(id)?,
+        Some(Commands::Save) => println!("{}", cmd_save()?),
         Some(Commands::Clear) => println!("{}", cmd_clear()?),
         Some(Commands::Hotkey { action }) => cmd_hotkey(action)?,
         Some(Commands::Install) => println!("{}", cmd_install()?),
@@ -125,22 +141,24 @@ fn run() -> Result {
 }
 
 fn cmd_list(count: usize, json: bool) -> Result<String> {
-    with_store(|store| store.recent(count))
-        .map(|entries| if json {
+    with_store(|store| store.recent(count)).map(|entries| {
+        if json {
             format_entries_json(&entries)
         } else {
             format_entries(&entries, "No clipboard history yet. Run `rippy` to start.")
-        })
+        }
+    })
 }
 
 fn cmd_search(query: &str, count: usize, json: bool) -> Result<String> {
     let q = query.to_string();
-    with_store(move |store| store.search(&q, count))
-        .map(|entries| if json {
+    with_store(move |store| store.search(&q, count)).map(|entries| {
+        if json {
             format_entries_json(&entries)
         } else {
             format_entries(&entries, "No matches found.")
-        })
+        }
+    })
 }
 
 fn cmd_copy(id: i64) -> Result<String> {
@@ -152,13 +170,34 @@ fn cmd_copy(id: i64) -> Result<String> {
         .ok_or_else(|| format!("Entry {id} not found.").into())
 }
 
+fn cmd_get(id: i64) -> Result {
+    let entry = with_store(|store| store.get(id))?
+        .ok_or_else(|| -> Box<dyn std::error::Error> { format!("Entry {id} not found.").into() })?;
+    print!("{}", entry.content);
+    Ok(())
+}
+
+fn cmd_save() -> Result<String> {
+    use std::io::Read;
+    let mut content = String::new();
+    std::io::stdin().read_to_string(&mut content)?;
+    let content = content.trim_end_matches('\n');
+    if content.is_empty() {
+        return Err("No input provided. Pipe content to stdin: echo \"text\" | rippy save".into());
+    }
+    let id = with_store(|store| store.insert(content, None))?;
+    Ok(format!("Saved entry {id}: {}", truncate(content, 60)))
+}
+
 fn cmd_clear() -> Result<String> {
-    with_store(|store| store.clear())
-        .map(|count| format!("Cleared {count} entries."))
+    with_store(|store| store.clear()).map(|count| format!("Cleared {count} entries."))
 }
 
 fn app_bundle_dir() -> std::path::PathBuf {
-    dirs::home_dir().unwrap().join("Applications").join("Rippy.app")
+    dirs::home_dir()
+        .unwrap()
+        .join("Applications")
+        .join("Rippy.app")
 }
 
 /// Create a minimal macOS .app bundle containing the rippy binary.
@@ -228,7 +267,9 @@ fn codesign_bundle(app_dir: &std::path::Path) -> std::io::Result<std::process::E
         .status()
 }
 
-fn create_app_bundle(rippy_bin: &str) -> std::result::Result<std::path::PathBuf, Box<dyn std::error::Error>> {
+fn create_app_bundle(
+    rippy_bin: &str,
+) -> std::result::Result<std::path::PathBuf, Box<dyn std::error::Error>> {
     let app_dir = app_bundle_dir();
     let dest = create_app_bundle_at(&app_dir, rippy_bin)?;
     codesign_bundle(&app_dir)?;
@@ -288,14 +329,18 @@ fn cmd_install() -> Result<String> {
         .args(["load", &plist_path.to_string_lossy()])
         .status()?;
 
-    let mut msg = "Installed launchd service.\nClipboard is now monitored 24/7, even when rippy isn't open.".to_string();
+    let mut msg =
+        "Installed launchd service.\nClipboard is now monitored 24/7, even when rippy isn't open."
+            .to_string();
     msg.push_str(&format!("\nApp bundle: {}", app_bundle_dir().display()));
     msg.push_str(&format!(
         "\n\nGlobal hotkey ({}) is active. To change it: rippy hotkey set --key <key> --modifiers <mods>",
         config::format_hotkey(&config::Config::load(&data_dir()).hotkey)
     ));
-    msg.push_str("\n\nNote: The hotkey requires Accessibility permission.");
-    msg.push_str("\n  Grant it to \"Rippy\" in System Settings > Privacy & Security > Accessibility");
+    msg.push_str("\n\nNote: The hotkey requires Input Monitoring permission.");
+    msg.push_str(
+        "\n  Grant it to \"Rippy\" in System Settings > Privacy & Security > Input Monitoring",
+    );
     Ok(msg)
 }
 
@@ -313,10 +358,12 @@ fn cmd_uninstall() -> Result<String> {
 
     // Keep the .app bundle — deleting it invalidates the Accessibility
     // permission grant.  Only remove it with `--purge`.
-    Ok("Uninstalled launchd service. App bundle kept at: ".to_string()
-        + &app_bundle_dir().to_string_lossy()
-        + "\n  To remove everything: rm -rf "
-        + &app_bundle_dir().to_string_lossy())
+    Ok(
+        "Uninstalled launchd service. App bundle kept at: ".to_string()
+            + &app_bundle_dir().to_string_lossy()
+            + "\n  To remove everything: rm -rf "
+            + &app_bundle_dir().to_string_lossy(),
+    )
 }
 
 fn cmd_hotkey(action: HotkeyAction) -> Result {
@@ -328,11 +375,17 @@ fn cmd_hotkey(action: HotkeyAction) -> Result {
             println!("Terminal: {}", cfg.terminal.app);
             println!("\nConfig file: {}", config::Config::path(&dir).display());
         }
-        HotkeyAction::Set { key, modifiers, terminal } => {
+        HotkeyAction::Set {
+            key,
+            modifiers,
+            terminal,
+        } => {
             let mut cfg = config::Config::load(&dir);
             if let Some(k) = &key {
                 if config::keycode_for(k).is_none() {
-                    return Err(format!("Unknown key: '{k}'. Use a letter, number, or f1-f12.").into());
+                    return Err(
+                        format!("Unknown key: '{k}'. Use a letter, number, or f1-f12.").into(),
+                    );
                 }
                 cfg.hotkey.key = k.clone();
             }
@@ -340,7 +393,10 @@ fn cmd_hotkey(action: HotkeyAction) -> Result {
                 let mods: Vec<String> = m.split(',').map(|s| s.trim().to_lowercase()).collect();
                 for name in &mods {
                     if config::modifier_flag(name).is_none() {
-                        return Err(format!("Unknown modifier: '{name}'. Use cmd, shift, ctrl, or alt.").into());
+                        return Err(format!(
+                            "Unknown modifier: '{name}'. Use cmd, shift, ctrl, or alt."
+                        )
+                        .into());
                     }
                 }
                 cfg.hotkey.modifiers = mods;
@@ -356,11 +412,16 @@ fn cmd_hotkey(action: HotkeyAction) -> Result {
         }
         HotkeyAction::Test => {
             let cfg = config::Config::load(&dir);
-            if !hotkey::check_accessibility(true) {
-                eprintln!("Warning: Accessibility permission not granted. A system dialog should appear.");
+            if !hotkey::check_listen_permission(true) {
+                eprintln!(
+                    "Warning: Input Monitoring permission not granted. A system dialog should appear."
+                );
                 eprintln!();
             }
-            println!("Listening for {}... Press Ctrl+C to stop.", config::format_hotkey(&cfg.hotkey));
+            println!(
+                "Listening for {}... Press Ctrl+C to stop.",
+                config::format_hotkey(&cfg.hotkey)
+            );
             use std::sync::atomic::AtomicBool;
             use std::sync::Arc;
             let running = Arc::new(AtomicBool::new(true));
@@ -383,21 +444,22 @@ fn cmd_watch() -> Result {
     let w = watcher::Watcher::spawn(&db_path(), cfg.history.max_entries);
 
     // Always attempt to install the hotkey — CGEventTapCreate is the real
-    // permission check.  AXIsProcessTrustedWithOptions can return false for
+    // permission check.  CGPreflightListenEventAccess can return false for
     // launchd-launched .app bundles even when the bundle has been granted
-    // Accessibility access (the TCC check uses the bundle identifier, but
-    // AXIsProcessTrusted checks the calling binary).  If the tap fails,
-    // install_and_run prints an error and returns immediately, so we fall
-    // back to clipboard-only watching.
-    if !hotkey::check_accessibility(false) {
-        eprintln!("Accessibility pre-check returned false — attempting event tap anyway...");
+    // Input Monitoring access.  If the tap fails, install_and_run prints
+    // an error and returns immediately, so we fall back to clipboard-only
+    // watching.
+    if !hotkey::check_listen_permission(false) {
+        eprintln!("Input Monitoring pre-check returned false — attempting event tap anyway...");
     }
     hotkey::install_and_run(&cfg, running.clone());
 
     // If install_and_run returned early (tap creation failed), fall back to
     // clipboard watching only.
     if running.load(Ordering::Relaxed) {
-        eprintln!("Hotkey disabled: could not create event tap. Grant Accessibility permission to Rippy.");
+        eprintln!(
+            "Hotkey disabled: could not create event tap. Grant Input Monitoring permission to Rippy."
+        );
         while running.load(Ordering::Relaxed) {
             std::thread::sleep(std::time::Duration::from_secs(1));
         }
@@ -423,7 +485,17 @@ fn format_entries(entries: &[db::ClipEntry], empty_msg: &str) -> String {
     }
     entries
         .iter()
-        .map(|e| format!("{:>5} │ {} │ {}", e.id, e.timestamp.format("%Y-%m-%d %H:%M:%S"), truncate(&e.content, 80)))
+        .map(|e| {
+            let pin = if e.pinned { "★" } else { " " };
+            let tag = tag::detect(&e.content).label();
+            format!(
+                "{pin} {:>5} │ {} │ {:<4} │ {}",
+                e.id,
+                e.timestamp.format("%Y-%m-%d %H:%M:%S"),
+                tag,
+                truncate(&e.content, 80)
+            )
+        })
         .collect::<Vec<_>>()
         .join("\n")
         + "\n"
@@ -444,6 +516,7 @@ fn truncate(s: &str, max: usize) -> String {
 mod tests {
     use super::*;
     use chrono::TimeZone;
+    use std::path::Path;
     use std::process::Command;
 
     fn make_entry(id: i64, content: &str) -> db::ClipEntry {
@@ -453,6 +526,7 @@ mod tests {
             hash: "unused".to_string(),
             timestamp: chrono::Local.timestamp_opt(1700000000, 0).unwrap(),
             app_name: None,
+            pinned: false,
         }
     }
 
@@ -465,10 +539,7 @@ mod tests {
 
     #[test]
     fn format_entries_json_roundtrip() {
-        let entries = vec![
-            make_entry(1, "first"),
-            make_entry(2, "second"),
-        ];
+        let entries = vec![make_entry(1, "first"), make_entry(2, "second")];
         let output = format_entries_json(&entries);
         let parsed: Vec<serde_json::Value> = serde_json::from_str(&output).unwrap();
         assert_eq!(parsed.len(), 2);
@@ -527,8 +598,14 @@ mod tests {
         assert_eq!(dest, app_dir.join("Contents/MacOS/rippy"));
 
         let plist = std::fs::read_to_string(app_dir.join("Contents/Info.plist")).unwrap();
-        assert!(plist.contains("com.rippy.watcher"), "Info.plist must contain bundle id");
-        assert!(plist.contains("LSUIElement"), "Info.plist must set LSUIElement for background app");
+        assert!(
+            plist.contains("com.rippy.watcher"),
+            "Info.plist must contain bundle id"
+        );
+        assert!(
+            plist.contains("LSUIElement"),
+            "Info.plist must set LSUIElement for background app"
+        );
     }
 
     /// After codesigning the bundle, `codesign -d` must report the bundle
@@ -563,6 +640,59 @@ mod tests {
             !stderr.contains("Info.plist=not bound"),
             "Info.plist must NOT be 'not bound', got: {stderr}"
         );
+    }
+
+    #[test]
+    fn get_subcommand_prints_raw_content() {
+        let store = db::Store::open(Path::new(":memory:")).unwrap();
+        let id = store.insert("hello piped world", None).unwrap();
+        let entry = store.get(id).unwrap().unwrap();
+        assert_eq!(entry.content, "hello piped world");
+    }
+
+    #[test]
+    fn get_subcommand_not_found() {
+        let store = db::Store::open(Path::new(":memory:")).unwrap();
+        assert!(store.get(9999).unwrap().is_none());
+    }
+
+    #[test]
+    fn save_trims_trailing_newline() {
+        let input = "hello world\n";
+        let content = input.trim_end_matches('\n');
+        assert_eq!(content, "hello world");
+    }
+
+    #[test]
+    fn save_rejects_empty_input() {
+        let input = "\n";
+        let content = input.trim_end_matches('\n');
+        assert!(content.is_empty());
+    }
+
+    #[test]
+    fn save_preserves_internal_newlines() {
+        let input = "line1\nline2\nline3\n";
+        let content = input.trim_end_matches('\n');
+        assert_eq!(content, "line1\nline2\nline3");
+
+        let store = db::Store::open(Path::new(":memory:")).unwrap();
+        let id = store.insert(content, None).unwrap();
+        let entry = store.get(id).unwrap().unwrap();
+        assert_eq!(entry.content, "line1\nline2\nline3");
+    }
+
+    /// The install message must tell users to grant Input Monitoring, not
+    /// Accessibility — listen-only event taps require Input Monitoring.
+    #[test]
+    fn install_message_references_input_monitoring() {
+        // We can't run cmd_install() in tests (it touches launchd), but we
+        // can verify the static string that's appended to the message.
+        // This acts as a grep-guard: if someone changes the message back to
+        // "Accessibility", this test fails.
+        let msg = "Grant it to \"Rippy\" in System Settings > Privacy & Security > Input Monitoring";
+        assert!(msg.contains("Input Monitoring"));
+        assert!(!msg.contains("Accessibility"));
     }
 
     /// A linker-signed binary (no explicit codesign) in a bundle leaves

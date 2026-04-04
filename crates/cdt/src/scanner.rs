@@ -178,8 +178,14 @@ fn fetch_prs(repo_path: &Path) -> HashMap<String, PrInfo> {
     // gh pr list --json number,headRefName,statusCheckRollup
     let output = Command::new("gh")
         .args([
-            "pr", "list", "--state", "open", "--limit", "100",
-            "--json", "number,headRefName,statusCheckRollup",
+            "pr",
+            "list",
+            "--state",
+            "open",
+            "--limit",
+            "100",
+            "--json",
+            "number,headRefName,statusCheckRollup",
         ])
         .current_dir(repo_path)
         .output();
@@ -216,7 +222,13 @@ fn fetch_prs(repo_path: &Path) -> HashMap<String, PrInfo> {
                 CiStatus::Unknown
             };
 
-            map.insert(br, PrInfo { number: num, ci_status: ci });
+            map.insert(
+                br,
+                PrInfo {
+                    number: num,
+                    ci_status: ci,
+                },
+            );
         }
     }
 
@@ -234,12 +246,16 @@ fn extract_json_u32(obj: &str, key: &str) -> Option<u32> {
     let pattern = format!("\"{}\":", key);
     let start = obj.find(&pattern)? + pattern.len();
     let rest = obj[start..].trim_start();
-    let end = rest.find(|c: char| !c.is_ascii_digit()).unwrap_or(rest.len());
+    let end = rest
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(rest.len());
     rest[..end].parse().ok()
 }
 
 /// Collect (project, name, path) tuples — cheap directory listing, no git calls.
-pub fn collect_workspace_paths(root: &Path) -> Result<Vec<(String, String, PathBuf)>, Box<dyn std::error::Error>> {
+pub fn collect_workspace_paths(
+    root: &Path,
+) -> Result<Vec<(String, String, PathBuf)>, Box<dyn std::error::Error>> {
     let mut entries = Vec::new();
 
     for project_entry in fs::read_dir(root)? {
@@ -305,10 +321,7 @@ pub fn find_workspace<'a>(
     }
 
     // Match on workspace name alone
-    let matches: Vec<&Workspace> = workspaces
-        .iter()
-        .filter(|w| w.name == query)
-        .collect();
+    let matches: Vec<&Workspace> = workspaces.iter().filter(|w| w.name == query).collect();
 
     match matches.len() {
         0 => Err(format!("no workspace matching '{query}'")),

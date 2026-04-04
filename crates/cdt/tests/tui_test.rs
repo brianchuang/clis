@@ -1,8 +1,8 @@
 use cdt::scanner::Workspace;
-use cdt::tui::{Action, App, Mode, apply_action, compute_filtered, handle_key};
-use tui_core::NavAction;
+use cdt::tui::{apply_action, compute_filtered, handle_key, Action, App, Mode};
 use crossterm::event::{KeyCode, KeyModifiers};
 use std::path::PathBuf;
+use tui_core::NavAction;
 
 fn make_key(code: KeyCode) -> crossterm::event::KeyEvent {
     tui_core::make_test_key(code)
@@ -14,11 +14,56 @@ fn make_key_with_mods(code: KeyCode, modifiers: KeyModifiers) -> crossterm::even
 
 fn test_workspaces() -> Vec<Workspace> {
     vec![
-        Workspace { project: "black-pearl".into(), name: "memphis".into(), path: PathBuf::from("/ws/black-pearl/memphis"), merged: None, branch: None, last_commit: None, dirty: false, pr: None },
-        Workspace { project: "black-pearl".into(), name: "tokyo".into(), path: PathBuf::from("/ws/black-pearl/tokyo"), merged: None, branch: None, last_commit: None, dirty: false, pr: None },
-        Workspace { project: "black-pearl".into(), name: "warsaw".into(), path: PathBuf::from("/ws/black-pearl/warsaw"), merged: None, branch: None, last_commit: None, dirty: false, pr: None },
-        Workspace { project: "my-app".into(), name: "london".into(), path: PathBuf::from("/ws/my-app/london"), merged: None, branch: None, last_commit: None, dirty: false, pr: None },
-        Workspace { project: "my-app".into(), name: "paris".into(), path: PathBuf::from("/ws/my-app/paris"), merged: None, branch: None, last_commit: None, dirty: false, pr: None },
+        Workspace {
+            project: "black-pearl".into(),
+            name: "memphis".into(),
+            path: PathBuf::from("/ws/black-pearl/memphis"),
+            merged: None,
+            branch: None,
+            last_commit: None,
+            dirty: false,
+            pr: None,
+        },
+        Workspace {
+            project: "black-pearl".into(),
+            name: "tokyo".into(),
+            path: PathBuf::from("/ws/black-pearl/tokyo"),
+            merged: None,
+            branch: None,
+            last_commit: None,
+            dirty: false,
+            pr: None,
+        },
+        Workspace {
+            project: "black-pearl".into(),
+            name: "warsaw".into(),
+            path: PathBuf::from("/ws/black-pearl/warsaw"),
+            merged: None,
+            branch: None,
+            last_commit: None,
+            dirty: false,
+            pr: None,
+        },
+        Workspace {
+            project: "my-app".into(),
+            name: "london".into(),
+            path: PathBuf::from("/ws/my-app/london"),
+            merged: None,
+            branch: None,
+            last_commit: None,
+            dirty: false,
+            pr: None,
+        },
+        Workspace {
+            project: "my-app".into(),
+            name: "paris".into(),
+            path: PathBuf::from("/ws/my-app/paris"),
+            merged: None,
+            branch: None,
+            last_commit: None,
+            dirty: false,
+            pr: None,
+        },
     ]
 }
 
@@ -429,8 +474,14 @@ fn insert_ctrl_u_clears() {
 #[test]
 fn insert_arrows_navigate() {
     let mut pending = None;
-    assert_eq!(handle_key(make_key(KeyCode::Up), Mode::Insert, &mut pending), Action::Nav(NavAction::MoveUp));
-    assert_eq!(handle_key(make_key(KeyCode::Down), Mode::Insert, &mut pending), Action::Nav(NavAction::MoveDown));
+    assert_eq!(
+        handle_key(make_key(KeyCode::Up), Mode::Insert, &mut pending),
+        Action::Nav(NavAction::MoveUp)
+    );
+    assert_eq!(
+        handle_key(make_key(KeyCode::Down), Mode::Insert, &mut pending),
+        Action::Nav(NavAction::MoveDown)
+    );
 }
 
 // --- Edge cases ---
@@ -468,7 +519,7 @@ fn navigation_with_empty_filter_is_safe() {
 fn clamp_selection_after_filter_narrows() {
     let mut app = test_app();
     app.selected = 4; // last of 5
-    // Type something that matches fewer items
+                      // Type something that matches fewer items
     apply_action(&mut app, Action::Nav(NavAction::TypeChar('t')));
     apply_action(&mut app, Action::Nav(NavAction::TypeChar('o')));
     apply_action(&mut app, Action::Nav(NavAction::TypeChar('k')));

@@ -111,8 +111,7 @@ mod tests {
     #[test]
     fn filters_by_domain() {
         let dir = setup_vault();
-        let due =
-            get_due_concepts(dir.path(), Some("Systems"), None, Some("2025-01-15")).unwrap();
+        let due = get_due_concepts(dir.path(), Some("Systems"), None, Some("2025-01-15")).unwrap();
         assert_eq!(due.len(), 2);
         for c in &due {
             assert_eq!(c.domain.as_deref(), Some("Systems"));

@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "pre-commit: checking formatting..."
+cargo fmt --check --quiet 2>/dev/null || {
+    echo ""
+    echo "ERROR: cargo fmt check failed."
+    echo "Run 'cargo fmt' to fix formatting, then try again."
+    exit 1
+}

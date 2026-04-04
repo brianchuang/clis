@@ -1,6 +1,8 @@
 use crate::scanner::{self, Workspace};
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
-use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
+use crossterm::terminal::{
+    disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
+};
 use crossterm::ExecutableCommand;
 use ratatui::prelude::*;
 use ratatui::widgets::*;
@@ -76,13 +78,19 @@ impl App {
     }
 
     pub fn selected_workspace(&self) -> Option<&Workspace> {
-        self.filtered.get(self.selected).map(|&i| &self.workspaces[i])
+        self.filtered
+            .get(self.selected)
+            .map(|&i| &self.workspaces[i])
     }
 }
 
 // --- Key handling ---
 
-pub fn handle_key(key: crossterm::event::KeyEvent, mode: Mode, pending: &mut Option<char>) -> Action {
+pub fn handle_key(
+    key: crossterm::event::KeyEvent,
+    mode: Mode,
+    pending: &mut Option<char>,
+) -> Action {
     // Normal mode: p toggles preview, Ctrl+j/k scrolls preview
     if mode == Mode::Normal {
         if let KeyCode::Char('p') = key.code {
@@ -108,48 +116,46 @@ pub fn handle_key(key: crossterm::event::KeyEvent, mode: Mode, pending: &mut Opt
 pub fn apply_action(app: &mut App, action: Action) {
     let prev_selected = app.selected;
     match action {
-        Action::Nav(nav) => {
-            match nav {
-                tui_core::NavAction::Noop => {}
-                tui_core::NavAction::Quit => app.should_quit = true,
-                tui_core::NavAction::ShowHelp => app.show_help = !app.show_help,
-                tui_core::NavAction::EnterInsert => app.mode = Mode::Insert,
-                tui_core::NavAction::ExitInsert => {
-                    app.mode = Mode::Normal;
-                    app.pending_key = None;
-                }
-                tui_core::NavAction::TypeChar(c) => {
-                    app.query.push(c);
-                    app.refilter();
-                    app.selected = 0;
-                }
-                tui_core::NavAction::Backspace => {
-                    app.query.pop();
-                    app.refilter();
-                    app.selected = 0;
-                }
-                tui_core::NavAction::ClearSearch => {
-                    app.query.clear();
-                    app.refilter();
-                    app.selected = 0;
-                }
-                ref nav_action @ (tui_core::NavAction::MoveUp
-                | tui_core::NavAction::MoveDown
-                | tui_core::NavAction::MoveToTop
-                | tui_core::NavAction::MoveToBottom
-                | tui_core::NavAction::HalfPageUp
-                | tui_core::NavAction::HalfPageDown
-                | tui_core::NavAction::NextMatch
-                | tui_core::NavAction::PrevMatch) => {
-                    app.selected = tui_core::apply_navigation(
-                        nav_action,
-                        app.selected,
-                        app.filtered.len(),
-                        app.list_height,
-                    );
-                }
+        Action::Nav(nav) => match nav {
+            tui_core::NavAction::Noop => {}
+            tui_core::NavAction::Quit => app.should_quit = true,
+            tui_core::NavAction::ShowHelp => app.show_help = !app.show_help,
+            tui_core::NavAction::EnterInsert => app.mode = Mode::Insert,
+            tui_core::NavAction::ExitInsert => {
+                app.mode = Mode::Normal;
+                app.pending_key = None;
             }
-        }
+            tui_core::NavAction::TypeChar(c) => {
+                app.query.push(c);
+                app.refilter();
+                app.selected = 0;
+            }
+            tui_core::NavAction::Backspace => {
+                app.query.pop();
+                app.refilter();
+                app.selected = 0;
+            }
+            tui_core::NavAction::ClearSearch => {
+                app.query.clear();
+                app.refilter();
+                app.selected = 0;
+            }
+            ref nav_action @ (tui_core::NavAction::MoveUp
+            | tui_core::NavAction::MoveDown
+            | tui_core::NavAction::MoveToTop
+            | tui_core::NavAction::MoveToBottom
+            | tui_core::NavAction::HalfPageUp
+            | tui_core::NavAction::HalfPageDown
+            | tui_core::NavAction::NextMatch
+            | tui_core::NavAction::PrevMatch) => {
+                app.selected = tui_core::apply_navigation(
+                    nav_action,
+                    app.selected,
+                    app.filtered.len(),
+                    app.list_height,
+                );
+            }
+        },
         Action::Select => {
             if let Some(ws) = app.selected_workspace() {
                 app.chosen = Some(ws.path.clone());
@@ -180,7 +186,11 @@ pub fn compute_filtered(workspaces: &[Workspace], query: &str) -> Vec<usize> {
 // --- Main loop ---
 // We render to stderr so stdout stays clean for the selected path.
 
-pub fn run(root: &Path, no_cache: bool, time: bool) -> Result<Option<PathBuf>, Box<dyn std::error::Error>> {
+pub fn run(
+    root: &Path,
+    no_cache: bool,
+    time: bool,
+) -> Result<Option<PathBuf>, Box<dyn std::error::Error>> {
     use crate::cache;
     use std::time::Instant;
 
@@ -196,7 +206,11 @@ pub fn run(root: &Path, no_cache: bool, time: bool) -> Result<Option<PathBuf>, B
         } else {
             let ws = scanner::scan(root)?;
             if time {
-                eprintln!("[cdt] TUI fresh scan — {} workspaces in {:.1?}", ws.len(), t0.elapsed());
+                eprintln!(
+                    "[cdt] TUI fresh scan — {} workspaces in {:.1?}",
+                    ws.len(),
+                    t0.elapsed()
+                );
             }
             cache::save(root, &ws);
             ws
@@ -204,7 +218,11 @@ pub fn run(root: &Path, no_cache: bool, time: bool) -> Result<Option<PathBuf>, B
     } else {
         let ws = scanner::scan(root)?;
         if time {
-            eprintln!("[cdt] TUI scan (no-cache) — {} workspaces in {:.1?}", ws.len(), t0.elapsed());
+            eprintln!(
+                "[cdt] TUI scan (no-cache) — {} workspaces in {:.1?}",
+                ws.len(),
+                t0.elapsed()
+            );
         }
         ws
     };
@@ -266,7 +284,15 @@ fn render(f: &mut Frame, app: &mut App) {
         ])
         .split(f.area());
 
-    f.render_widget(tui_core::render_search_bar("cdt", &app.query, app.mode, "Type to filter workspaces\u{2026}"), chunks[0]);
+    f.render_widget(
+        tui_core::render_search_bar(
+            "cdt",
+            &app.query,
+            app.mode,
+            "Type to filter workspaces\u{2026}",
+        ),
+        chunks[0],
+    );
 
     let content_area = chunks[1];
     let list_area = if app.show_preview {
@@ -285,12 +311,24 @@ fn render(f: &mut Frame, app: &mut App) {
     app.list_height = list_height;
     tui_core::adjust_scroll(app.selected, &mut app.scroll_offset, list_height);
     f.render_widget(
-        render_workspace_list(&app.workspaces, &app.filtered, app.selected, app.scroll_offset, list_height),
+        render_workspace_list(
+            &app.workspaces,
+            &app.filtered,
+            app.selected,
+            app.scroll_offset,
+            list_height,
+        ),
         list_area,
     );
 
     f.render_widget(
-        render_status_bar(app.filtered.len(), app.workspaces.len(), app.mode, app.selected_workspace(), app.show_preview),
+        render_status_bar(
+            app.filtered.len(),
+            app.workspaces.len(),
+            app.mode,
+            app.selected_workspace(),
+            app.show_preview,
+        ),
         chunks[2],
     );
 
@@ -351,21 +389,55 @@ fn render_list_item(ws: &Workspace, is_selected: bool) -> ListItem<'static> {
         Some(false) => "\u{25cf}",
         None => " ",
     };
-    let project_color = if is_selected { Color::Cyan } else { Color::Blue };
-    let name_color = if is_selected { Color::White } else { Color::Green };
-    let branch_color = if is_selected { Color::White } else { Color::Magenta };
-    let age_color = if is_selected { Color::Gray } else { Color::DarkGray };
+    let project_color = if is_selected {
+        Color::Cyan
+    } else {
+        Color::Blue
+    };
+    let name_color = if is_selected {
+        Color::White
+    } else {
+        Color::Green
+    };
+    let branch_color = if is_selected {
+        Color::White
+    } else {
+        Color::Magenta
+    };
+    let age_color = if is_selected {
+        Color::Gray
+    } else {
+        Color::DarkGray
+    };
     let dirty_color = Color::Red;
 
     let mut spans = vec![
-        Span::styled(format!(" {indicator} "), style.patch(Style::default().fg(indicator_color))),
-        Span::styled(format!("{:<16}", d.project), style.patch(Style::default().fg(project_color))),
-        Span::styled(format!("{:<16}", d.name), style.patch(Style::default().fg(name_color))),
-        Span::styled(format!("{:<24}", d.branch), style.patch(Style::default().fg(branch_color))),
-        Span::styled(format!("{:>8}", d.age), style.patch(Style::default().fg(age_color))),
+        Span::styled(
+            format!(" {indicator} "),
+            style.patch(Style::default().fg(indicator_color)),
+        ),
+        Span::styled(
+            format!("{:<16}", d.project),
+            style.patch(Style::default().fg(project_color)),
+        ),
+        Span::styled(
+            format!("{:<16}", d.name),
+            style.patch(Style::default().fg(name_color)),
+        ),
+        Span::styled(
+            format!("{:<24}", d.branch),
+            style.patch(Style::default().fg(branch_color)),
+        ),
+        Span::styled(
+            format!("{:>8}", d.age),
+            style.patch(Style::default().fg(age_color)),
+        ),
     ];
     if d.dirty {
-        spans.push(Span::styled(" \u{2717}", style.patch(Style::default().fg(dirty_color))));
+        spans.push(Span::styled(
+            " \u{2717}",
+            style.patch(Style::default().fg(dirty_color)),
+        ));
     }
 
     ListItem::new(Line::from(spans))
@@ -376,7 +448,11 @@ fn render_preview(f: &mut Frame, app: &mut App, area: Rect) {
         .borders(Borders::LEFT)
         .border_style(Style::default().fg(Color::DarkGray))
         .title(" Diff ")
-        .title_style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD));
+        .title_style(
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        );
 
     let inner = block.inner(area);
     f.render_widget(block, area);
@@ -421,7 +497,10 @@ fn render_preview(f: &mut Frame, app: &mut App, area: Rect) {
                 );
                 Line::from(vec![file_span, sep, stat_span])
             } else {
-                Line::from(Span::styled(line.to_string(), Style::default().fg(Color::DarkGray)))
+                Line::from(Span::styled(
+                    line.to_string(),
+                    Style::default().fg(Color::DarkGray),
+                ))
             }
         })
         .collect();
@@ -429,13 +508,18 @@ fn render_preview(f: &mut Frame, app: &mut App, area: Rect) {
     let max_scroll = lines.len().saturating_sub(preview_height);
     let scroll = app.preview_scroll.min(max_scroll);
 
-    let paragraph = Paragraph::new(lines)
-        .scroll((scroll as u16, 0));
+    let paragraph = Paragraph::new(lines).scroll((scroll as u16, 0));
 
     f.render_widget(paragraph, inner);
 }
 
-fn render_status_bar(count: usize, total: usize, mode: Mode, selected: Option<&Workspace>, show_preview: bool) -> Paragraph<'static> {
+fn render_status_bar(
+    count: usize,
+    total: usize,
+    mode: Mode,
+    selected: Option<&Workspace>,
+    show_preview: bool,
+) -> Paragraph<'static> {
     let path_hint = selected
         .map(|ws| ws.path.display().to_string())
         .unwrap_or_default();

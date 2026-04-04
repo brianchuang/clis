@@ -14,31 +14,31 @@ fn default_config_path() -> PathBuf {
 pub fn resolve_vault_path(flag_path: Option<&str>) -> Result<PathBuf, String> {
     // 1. --vault flag
     if let Some(p) = flag_path {
-        let resolved = PathBuf::from(p).canonicalize().map_err(|_| {
-            format!("Vault path does not exist: {p}")
-        })?;
+        let resolved = PathBuf::from(p)
+            .canonicalize()
+            .map_err(|_| format!("Vault path does not exist: {p}"))?;
         return Ok(resolved);
     }
 
     // 2. LEARN_VAULT env var
     if let Ok(env_path) = std::env::var("LEARN_VAULT") {
-        let resolved = PathBuf::from(&env_path).canonicalize().map_err(|_| {
-            format!("Vault path from LEARN_VAULT does not exist: {env_path}")
-        })?;
+        let resolved = PathBuf::from(&env_path)
+            .canonicalize()
+            .map_err(|_| format!("Vault path from LEARN_VAULT does not exist: {env_path}"))?;
         return Ok(resolved);
     }
 
     // 3. ~/.config/learn/config.json
     let config_path = default_config_path();
     if config_path.exists() {
-        let raw = fs::read_to_string(&config_path)
-            .map_err(|e| format!("Failed to read config: {e}"))?;
+        let raw =
+            fs::read_to_string(&config_path).map_err(|e| format!("Failed to read config: {e}"))?;
         let config: serde_json::Value =
             serde_json::from_str(&raw).map_err(|e| format!("Invalid config JSON: {e}"))?;
         if let Some(vault_path) = config.get("vaultPath").and_then(|v| v.as_str()) {
-            let resolved = PathBuf::from(vault_path).canonicalize().map_err(|_| {
-                format!("Vault path from config does not exist: {vault_path}")
-            })?;
+            let resolved = PathBuf::from(vault_path)
+                .canonicalize()
+                .map_err(|_| format!("Vault path from config does not exist: {vault_path}"))?;
             return Ok(resolved);
         }
     }
@@ -49,15 +49,12 @@ pub fn resolve_vault_path(flag_path: Option<&str>) -> Result<PathBuf, String> {
 pub fn write_config_pointer(vault_path: &Path) -> Result<(), String> {
     let config_path = default_config_path();
     if let Some(parent) = config_path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|e| format!("Failed to create config dir: {e}"))?;
+        fs::create_dir_all(parent).map_err(|e| format!("Failed to create config dir: {e}"))?;
     }
-    let abs = fs::canonicalize(vault_path)
-        .unwrap_or_else(|_| vault_path.to_path_buf());
+    let abs = fs::canonicalize(vault_path).unwrap_or_else(|_| vault_path.to_path_buf());
     let json = serde_json::json!({ "vaultPath": abs.to_string_lossy() });
     let content = serde_json::to_string_pretty(&json).unwrap() + "\n";
-    fs::write(&config_path, content)
-        .map_err(|e| format!("Failed to write config: {e}"))?;
+    fs::write(&config_path, content).map_err(|e| format!("Failed to write config: {e}"))?;
     Ok(())
 }
 

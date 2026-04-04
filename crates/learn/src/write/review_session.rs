@@ -26,8 +26,7 @@ pub fn write_review_session(
     force: bool,
 ) -> Result<String, String> {
     let reviews_dir = vault_root.join("Reviews");
-    fs::create_dir_all(&reviews_dir)
-        .map_err(|e| format!("Failed to create Reviews dir: {e}"))?;
+    fs::create_dir_all(&reviews_dir).map_err(|e| format!("Failed to create Reviews dir: {e}"))?;
 
     let file_path = reviews_dir.join(format!("{date}.md"));
 
@@ -42,10 +41,8 @@ pub fn write_review_session(
 
     // Atomic write
     let tmp_path = file_path.with_extension("md.tmp");
-    fs::write(&tmp_path, &content)
-        .map_err(|e| format!("Failed to write tmp: {e}"))?;
-    fs::rename(&tmp_path, &file_path)
-        .map_err(|e| format!("Failed to rename: {e}"))?;
+    fs::write(&tmp_path, &content).map_err(|e| format!("Failed to write tmp: {e}"))?;
+    fs::rename(&tmp_path, &file_path).map_err(|e| format!("Failed to rename: {e}"))?;
 
     Ok(file_path.to_string_lossy().to_string())
 }
@@ -114,5 +111,4 @@ mod tests {
         let result = write_review_session(dir.path(), &items, "2025-01-15", true);
         assert!(result.is_ok());
     }
-
 }

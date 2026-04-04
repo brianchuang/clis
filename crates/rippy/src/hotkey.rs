@@ -12,8 +12,6 @@ type CFRunLoopRef = *mut c_void;
 type CFAllocatorRef = *const c_void;
 type CFIndex = isize;
 type CFStringRef = *const c_void;
-type CFDictionaryRef = *const c_void;
-type CFBooleanRef = *const c_void;
 
 // Core Graphics types
 type CGEventRef = *mut c_void;
@@ -48,31 +46,15 @@ extern "C" {
     fn CGEventGetIntegerValueField(event: CGEventRef, field: u32) -> i64;
     fn CGEventGetFlags(event: CGEventRef) -> u64;
     fn CGEventTapEnable(tap: CFMachPortRef, enable: bool);
-}
-
-#[link(name = "ApplicationServices", kind = "framework")]
-extern "C" {
-    fn AXIsProcessTrustedWithOptions(options: CFDictionaryRef) -> bool;
-}
-
-// kAXTrustedCheckOptionPrompt key from HIServices
-extern "C" {
-    static kAXTrustedCheckOptionPrompt: CFStringRef;
+    // Input Monitoring permission APIs (macOS 10.15+).
+    // Listen-only event taps require Input Monitoring, NOT Accessibility.
+    fn CGPreflightListenEventAccess() -> bool;
+    fn CGRequestListenEventAccess() -> bool;
 }
 
 #[link(name = "CoreFoundation", kind = "framework")]
 extern "C" {
     static kCFRunLoopCommonModes: CFStringRef;
-    static kCFBooleanTrue: CFBooleanRef;
-    fn CFDictionaryCreate(
-        allocator: CFAllocatorRef,
-        keys: *const *const c_void,
-        values: *const *const c_void,
-        num_values: CFIndex,
-        key_callbacks: *const c_void,
-        value_callbacks: *const c_void,
-    ) -> CFDictionaryRef;
-    fn CFRelease(cf: *const c_void);
     fn CFMachPortCreateRunLoopSource(
         allocator: CFAllocatorRef,
         port: CFMachPortRef,
@@ -84,34 +66,23 @@ extern "C" {
     fn CFRunLoopStop(rl: CFRunLoopRef);
 }
 
-/// Check if the process has Accessibility permissions.
+/// Check if the process has Input Monitoring permission (required for
+/// listen-only event taps like our global hotkey).
 ///
-/// We use `AXIsProcessTrustedWithOptions` instead of the simpler `AXIsProcessTrusted`
-/// because when called with `kAXTrustedCheckOptionPrompt: true`, macOS shows its
-/// native permission dialog and adds the calling binary to the Accessibility list.
-/// This only works when the binary lives inside a .app bundle (see `create_app_bundle`
-/// in main.rs) — raw binaries are silently ignored by the prompt.
-pub fn check_accessibility(prompt: bool) -> bool {
+/// Uses `CGPreflightListenEventAccess` (no prompt) or `CGRequestListenEventAccess`
+/// (shows the native Input Monitoring prompt). These are the correct APIs for
+/// `kCGEventTapOptionListenOnly` — `AXIsProcessTrustedWithOptions` checks
+/// *Accessibility*, which is a different TCC category.
+pub fn check_listen_permission(prompt: bool) -> bool {
     unsafe {
-        if !prompt {
-            let opts = std::ptr::null();
-            return AXIsProcessTrustedWithOptions(opts);
+        if prompt {
+            CGRequestListenEventAccess()
+        } else {
+            CGPreflightListenEventAccess()
         }
-        let keys = [kAXTrustedCheckOptionPrompt];
-        let values = [kCFBooleanTrue];
-        let dict = CFDictionaryCreate(
-            std::ptr::null(),
-            keys.as_ptr(),
-            values.as_ptr(),
-            1,
-            std::ptr::null(),
-            std::ptr::null(),
-        );
-        let trusted = AXIsProcessTrustedWithOptions(dict);
-        CFRelease(dict);
-        trusted
     }
 }
+
 
 struct HotkeyContext {
     keycode: u16,
@@ -122,7 +93,18 @@ struct HotkeyContext {
 
 // Mask to isolate the modifier keys we care about (cmd, shift, ctrl, alt).
 // Ignores device-dependent flags and caps lock.
-const MODIFIER_FILTER: u64 = (1 << 20) | (1 << 17) | (1 << 18) | (1 << 19);
+pub const MODIFIER_FILTER: u64 = (1 << 20) | (1 << 17) | (1 << 18) | (1 << 19);
+
+/// Pure function: does the incoming key event match the configured hotkey?
+/// `raw_flags` are the raw CGEventFlags — this function applies MODIFIER_FILTER internally.
+pub fn matches_hotkey(
+    keycode: u16,
+    raw_flags: u64,
+    expected_keycode: u16,
+    expected_modifiers: u64,
+) -> bool {
+    keycode == expected_keycode && (raw_flags & MODIFIER_FILTER) == expected_modifiers
+}
 
 unsafe extern "C" fn hotkey_callback(
     _proxy: CGEventTapProxy,
@@ -145,13 +127,112 @@ unsafe extern "C" fn hotkey_callback(
     }
 
     let keycode = CGEventGetIntegerValueField(event, K_CG_KEYBOARD_EVENT_KEYCODE) as u16;
-    let flags = CGEventGetFlags(event) & MODIFIER_FILTER;
+    let flags = CGEventGetFlags(event);
 
-    if keycode == ctx.keycode && flags == ctx.modifier_mask {
+    if matches_hotkey(keycode, flags, ctx.keycode, ctx.modifier_mask) {
         terminal::launch_tui(&ctx.terminal_app);
     }
 
     event
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config;
+
+    #[test]
+    fn matches_exact_hotkey() {
+        // Cmd+Shift+V: modifiers = cmd(1<<20) | shift(1<<17), keycode for 'v' = 0x09
+        let cmd_shift = (1u64 << 20) | (1 << 17);
+        assert!(matches_hotkey(0x09, cmd_shift, 0x09, cmd_shift));
+    }
+
+    #[test]
+    fn rejects_wrong_keycode() {
+        let cmd_shift = (1u64 << 20) | (1 << 17);
+        // keycode 0x08 = 'c', not 'v'
+        assert!(!matches_hotkey(0x08, cmd_shift, 0x09, cmd_shift));
+    }
+
+    #[test]
+    fn rejects_wrong_modifiers() {
+        let cmd_shift = (1u64 << 20) | (1 << 17);
+        let cmd_only = 1u64 << 20;
+        assert!(!matches_hotkey(0x09, cmd_only, 0x09, cmd_shift));
+    }
+
+    #[test]
+    fn ignores_extra_flags_outside_modifier_filter() {
+        let cmd_shift = (1u64 << 20) | (1 << 17);
+        // Simulate raw flags with extra device-dependent bits set
+        let raw_flags = cmd_shift | (1 << 24) | (1 << 8);
+        assert!(matches_hotkey(0x09, raw_flags, 0x09, cmd_shift));
+    }
+
+    #[test]
+    fn roundtrip_config_to_match() {
+        // Simulate the full flow: config → keycode/mask → matches_hotkey
+        let cfg = config::HotkeyConfig {
+            key: "v".into(),
+            modifiers: vec!["cmd".into(), "shift".into()],
+        };
+        let expected_keycode = config::keycode_for(&cfg.key).unwrap();
+        let expected_mask = config::modifiers_mask(&cfg.modifiers);
+
+        // Simulated event: macOS sends raw flags with extra bits
+        let raw_flags = expected_mask | (1 << 24);
+        assert!(matches_hotkey(
+            expected_keycode,
+            raw_flags,
+            expected_keycode,
+            expected_mask
+        ));
+
+        // Wrong key pressed
+        let wrong_keycode = config::keycode_for("c").unwrap();
+        assert!(!matches_hotkey(
+            wrong_keycode,
+            raw_flags,
+            expected_keycode,
+            expected_mask
+        ));
+    }
+
+    #[test]
+    fn ctrl_alt_f5_hotkey() {
+        let ctrl_alt = (1u64 << 18) | (1 << 19);
+        let f5 = 0x60u16;
+        assert!(matches_hotkey(f5, ctrl_alt, f5, ctrl_alt));
+        assert!(!matches_hotkey(f5, 1u64 << 18, f5, ctrl_alt)); // missing alt
+    }
+
+    #[test]
+    fn no_modifiers_match() {
+        // A hotkey with no modifiers: just the bare key
+        assert!(matches_hotkey(0x31, 0, 0x31, 0)); // space with no modifiers
+    }
+
+    #[test]
+    fn modifier_filter_masks_caps_lock_and_device_bits() {
+        // MODIFIER_FILTER should only keep bits 17-20
+        assert_eq!(
+            MODIFIER_FILTER,
+            (1 << 17) | (1 << 18) | (1 << 19) | (1 << 20)
+        );
+        // Caps lock (bit 16) and other low/high bits should be masked out
+        assert_eq!(MODIFIER_FILTER & (1 << 16), 0);
+        assert_eq!(MODIFIER_FILTER & (1 << 21), 0);
+    }
+
+    /// check_listen_permission must exist and be callable.
+    /// We can't assert the return value in CI (no TCC context), but we can
+    /// verify the function compiles and doesn't panic.
+    #[test]
+    fn check_listen_permission_is_callable() {
+        // prompt=false should never show a dialog, safe in CI
+        let _result: bool = check_listen_permission(false);
+    }
 }
 
 /// Install the global hotkey and run the event loop.
@@ -160,7 +241,10 @@ pub fn install_and_run(cfg: &Config, running: Arc<AtomicBool>) {
     let keycode = match config::keycode_for(&cfg.hotkey.key) {
         Some(k) => k,
         None => {
-            eprintln!("Unknown hotkey key: '{}'. Run `rippy hotkey show` for valid keys.", cfg.hotkey.key);
+            eprintln!(
+                "Unknown hotkey key: '{}'. Run `rippy hotkey show` for valid keys.",
+                cfg.hotkey.key
+            );
             return;
         }
     };
@@ -191,8 +275,8 @@ pub fn install_and_run(cfg: &Config, running: Arc<AtomicBool>) {
         );
 
         if tap.is_null() {
-            eprintln!("Failed to create event tap. Requesting Accessibility permission...");
-            check_accessibility(true);
+            eprintln!("Failed to create event tap. Requesting Input Monitoring permission...");
+            check_listen_permission(true);
             // Clean up
             let _ = Box::from_raw(ctx_ptr);
             return;
@@ -204,7 +288,10 @@ pub fn install_and_run(cfg: &Config, running: Arc<AtomicBool>) {
         let source = CFMachPortCreateRunLoopSource(std::ptr::null(), tap, 0);
         CFRunLoopAddSource(run_loop, source, kCFRunLoopCommonModes);
 
-        eprintln!("Hotkey {} registered. Listening...", config::format_hotkey(&cfg.hotkey));
+        eprintln!(
+            "Hotkey {} registered. Listening...",
+            config::format_hotkey(&cfg.hotkey)
+        );
 
         // Poll the running flag on a background thread; stop the run loop when signaled.
         let running_clone = running.clone();

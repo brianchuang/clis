@@ -19,8 +19,8 @@ pub fn write_system_frontmatter(
     file_path: &Path,
     updates: &[(&str, serde_yaml::Value)],
 ) -> Result<(), String> {
-    let raw =
-        fs::read_to_string(file_path).map_err(|e| format!("Failed to read {}: {e}", file_path.display()))?;
+    let raw = fs::read_to_string(file_path)
+        .map_err(|e| format!("Failed to read {}: {e}", file_path.display()))?;
     let (mut data, body) = split_frontmatter(&raw);
 
     let mapping = data
@@ -32,42 +32,40 @@ pub fn write_system_frontmatter(
         if !key.starts_with('_') {
             continue;
         }
-        mapping.insert(
-            serde_yaml::Value::String(key.to_string()),
-            value.clone(),
-        );
+        mapping.insert(serde_yaml::Value::String(key.to_string()), value.clone());
     }
 
     let output = stringify(&data, &body);
 
     // Atomic write
     let tmp_path = file_path.with_extension("md.tmp");
-    fs::write(&tmp_path, &output)
-        .map_err(|e| format!("Failed to write tmp: {e}"))?;
-    fs::rename(&tmp_path, file_path)
-        .map_err(|e| format!("Failed to rename: {e}"))?;
+    fs::write(&tmp_path, &output).map_err(|e| format!("Failed to write tmp: {e}"))?;
+    fs::rename(&tmp_path, file_path).map_err(|e| format!("Failed to rename: {e}"))?;
 
     Ok(())
 }
 
 pub fn initialize_system_fields(file_path: &Path, date: &str) -> Result<(), String> {
-    let raw =
-        fs::read_to_string(file_path).map_err(|e| format!("Failed to read {}: {e}", file_path.display()))?;
+    let raw = fs::read_to_string(file_path)
+        .map_err(|e| format!("Failed to read {}: {e}", file_path.display()))?;
     let (data, _body) = split_frontmatter(&raw);
 
     let mut updates: Vec<(&str, serde_yaml::Value)> = Vec::new();
 
     if data.get("_mastery").is_none() {
-        updates.push(("_mastery", serde_yaml::Value::Number(serde_yaml::Number::from(0))));
+        updates.push((
+            "_mastery",
+            serde_yaml::Value::Number(serde_yaml::Number::from(0)),
+        ));
     }
     if data.get("_review_count").is_none() {
-        updates.push(("_review_count", serde_yaml::Value::Number(serde_yaml::Number::from(0))));
+        updates.push((
+            "_review_count",
+            serde_yaml::Value::Number(serde_yaml::Number::from(0)),
+        ));
     }
     if data.get("_next_review").is_none() {
-        updates.push((
-            "_next_review",
-            serde_yaml::Value::String(date.to_string()),
-        ));
+        updates.push(("_next_review", serde_yaml::Value::String(date.to_string())));
     }
 
     if !updates.is_empty() {
@@ -87,16 +85,15 @@ mod tests {
     fn writes_only_system_fields() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("test.md");
-        fs::write(
-            &path,
-            "---\nterm: Token Bucket\n---\nBody text.\n",
-        )
-        .unwrap();
+        fs::write(&path, "---\nterm: Token Bucket\n---\nBody text.\n").unwrap();
 
         write_system_frontmatter(
             &path,
             &[
-                ("_mastery", serde_yaml::Value::Number(serde_yaml::Number::from(0))),
+                (
+                    "_mastery",
+                    serde_yaml::Value::Number(serde_yaml::Number::from(0)),
+                ),
                 // This should be ignored — not underscore-prefixed
                 ("term", serde_yaml::Value::String("OVERWRITTEN".into())),
             ],
@@ -114,15 +111,14 @@ mod tests {
     fn preserves_body() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("test.md");
-        fs::write(
-            &path,
-            "---\nterm: Test\n---\nBody with [[links]].\n",
-        )
-        .unwrap();
+        fs::write(&path, "---\nterm: Test\n---\nBody with [[links]].\n").unwrap();
 
         write_system_frontmatter(
             &path,
-            &[("_review_count", serde_yaml::Value::Number(serde_yaml::Number::from(1)))],
+            &[(
+                "_review_count",
+                serde_yaml::Value::Number(serde_yaml::Number::from(1)),
+            )],
         )
         .unwrap();
 
