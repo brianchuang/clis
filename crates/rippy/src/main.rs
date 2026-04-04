@@ -71,6 +71,11 @@ enum Commands {
         #[command(subcommand)]
         action: ShortcutAction,
     },
+    /// Manage persistent saved snippets
+    Snippet {
+        #[command(subcommand)]
+        action: SnippetAction,
+    },
     /// Print shell alias for yy shortcut (eval in your shell rc)
     InitShell,
     /// Start MCP server (stdio transport) for AI assistant integration
@@ -81,6 +86,36 @@ enum Commands {
     /// Watch clipboard (used internally by launchd)
     #[command(hide = true)]
     Watch,
+}
+
+#[derive(Subcommand)]
+enum SnippetAction {
+    /// List all saved snippets
+    List {
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Save a new snippet (reads content from stdin)
+    Save {
+        /// Name for the snippet
+        name: String,
+    },
+    /// Copy a snippet to clipboard by ID
+    Copy {
+        /// Snippet ID
+        id: i64,
+    },
+    /// Print snippet content to stdout by ID (for piping)
+    Get {
+        /// Snippet ID
+        id: i64,
+    },
+    /// Delete a snippet by ID
+    Delete {
+        /// Snippet ID
+        id: i64,
+    },
 }
 
 #[derive(Subcommand)]
@@ -155,6 +190,7 @@ fn run() -> Result {
             ShortcutAction::Install => println!("{}", cmd_shortcut_install()?),
             ShortcutAction::Uninstall => println!("{}", cmd_shortcut_uninstall()?),
         },
+        Some(Commands::Snippet { action }) => cmd_snippet(action)?,
         Some(Commands::InitShell) => print!("{}", init_shell_output()),
         Some(Commands::Install) => println!("{}", cmd_install()?),
         Some(Commands::Uninstall) => println!("{}", cmd_uninstall()?),
@@ -219,6 +255,62 @@ fn cmd_save() -> Result<String> {
 
 fn cmd_clear() -> Result<String> {
     with_store(|store| store.clear()).map(|count| format!("Cleared {count} entries."))
+}
+
+fn cmd_snippet(action: SnippetAction) -> Result {
+    match action {
+        SnippetAction::List { json } => {
+            let snippets = with_store(|store| store.list_snippets())?;
+            if json {
+                print!("{}", serde_json::to_string_pretty(&snippets).unwrap());
+            } else if snippets.is_empty() {
+                println!("No snippets saved. Use `rippy snippet save <name>` to create one.");
+            } else {
+                for s in &snippets {
+                    println!("{:>5} │ {} │ {}", s.id, s.name, truncate(&s.content, 60));
+                }
+            }
+        }
+        SnippetAction::Save { name } => {
+            use std::io::Read;
+            let mut content = String::new();
+            std::io::stdin().read_to_string(&mut content)?;
+            let content = content.trim_end_matches('\n');
+            if content.is_empty() {
+                return Err(
+                    "No input provided. Pipe content to stdin: echo \"text\" | rippy snippet save <name>"
+                        .into(),
+                );
+            }
+            let id = with_store(|store| store.insert_snippet(&name, content))?;
+            println!("Saved snippet {id} ({name}): {}", truncate(content, 60));
+        }
+        SnippetAction::Copy { id } => {
+            let snippet = with_store(|store| store.get_snippet(id))?.ok_or_else(
+                || -> Box<dyn std::error::Error> { format!("Snippet {id} not found.").into() },
+            )?;
+            clipboard::set_clipboard(&snippet.content);
+            println!(
+                "Copied snippet to clipboard: {}",
+                truncate(&snippet.content, 60)
+            );
+        }
+        SnippetAction::Get { id } => {
+            let snippet = with_store(|store| store.get_snippet(id))?.ok_or_else(
+                || -> Box<dyn std::error::Error> { format!("Snippet {id} not found.").into() },
+            )?;
+            print!("{}", snippet.content);
+        }
+        SnippetAction::Delete { id } => {
+            let deleted = with_store(|store| store.delete_snippet(id))?;
+            if deleted {
+                println!("Deleted snippet {id}.");
+            } else {
+                return Err(format!("Snippet {id} not found.").into());
+            }
+        }
+    }
+    Ok(())
 }
 
 const SHELL_ALIAS_LINE: &str = r#"eval "$(rippy init-shell)""#;
