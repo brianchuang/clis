@@ -69,6 +69,10 @@ Inspect workspaces without leaving the TUI.
 - [x] **Lazy caching** — diff stat computed on first view per workspace, cached for the session
 - [x] **Colored diff stat** — file lines colored by change type (green additions, red deletions, yellow mixed)
 
+## v0.7 — Install experience
+
+- [ ] **Auto-append shell integration during install** — detect shell rc file and append `eval "$(cdt init-shell)"` automatically, with idempotency check
+
 ---
 
 ## Out of scope
