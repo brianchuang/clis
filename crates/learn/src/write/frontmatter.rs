@@ -45,6 +45,39 @@ pub fn write_system_frontmatter(
     Ok(())
 }
 
+/// Write user-owned frontmatter fields (term, domain, tags) to a concept file.
+/// Unlike `write_system_frontmatter`, this only writes non-underscore-prefixed keys.
+/// Will not overwrite existing user fields unless they are explicitly provided.
+pub fn write_user_frontmatter(
+    file_path: &Path,
+    updates: &[(&str, serde_yaml::Value)],
+) -> Result<(), String> {
+    let raw = fs::read_to_string(file_path)
+        .map_err(|e| format!("Failed to read {}: {e}", file_path.display()))?;
+    let (mut data, body) = split_frontmatter(&raw);
+
+    let mapping = data
+        .as_mapping_mut()
+        .ok_or_else(|| "Frontmatter is not a mapping".to_string())?;
+
+    for (key, value) in updates {
+        // Only allow non-underscore-prefixed keys (user-owned fields)
+        if key.starts_with('_') {
+            continue;
+        }
+        mapping.insert(serde_yaml::Value::String(key.to_string()), value.clone());
+    }
+
+    let output = stringify(&data, &body);
+
+    // Atomic write
+    let tmp_path = file_path.with_extension("md.tmp");
+    fs::write(&tmp_path, &output).map_err(|e| format!("Failed to write tmp: {e}"))?;
+    fs::rename(&tmp_path, file_path).map_err(|e| format!("Failed to rename: {e}"))?;
+
+    Ok(())
+}
+
 pub fn initialize_system_fields(file_path: &Path, date: &str) -> Result<(), String> {
     let raw = fs::read_to_string(file_path)
         .map_err(|e| format!("Failed to read {}: {e}", file_path.display()))?;
@@ -139,6 +172,52 @@ mod tests {
         assert!(content.contains("_review_count"));
         assert!(content.contains("_next_review"));
         assert!(content.contains("2025-01-15"));
+    }
+
+    #[test]
+    fn writes_only_user_fields() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.md");
+        fs::write(&path, "---\n_mastery: 0.5\n---\nBody text.\n").unwrap();
+
+        write_user_frontmatter(
+            &path,
+            &[
+                ("term", serde_yaml::Value::String("Token Bucket".into())),
+                ("domain", serde_yaml::Value::String("Systems".into())),
+                // This should be ignored — underscore-prefixed
+                (
+                    "_mastery",
+                    serde_yaml::Value::Number(serde_yaml::Number::from(0)),
+                ),
+            ],
+        )
+        .unwrap();
+
+        let content = fs::read_to_string(&path).unwrap();
+        assert!(content.contains("Token Bucket"));
+        assert!(content.contains("Systems"));
+        // _mastery should NOT be overwritten to 0
+        assert!(content.contains("0.5"));
+    }
+
+    #[test]
+    fn writes_tags_as_sequence() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.md");
+        fs::write(&path, "---\nterm: Test\n---\nBody.\n").unwrap();
+
+        let tags = serde_yaml::Value::Sequence(vec![
+            serde_yaml::Value::String("rate-limiting".into()),
+            serde_yaml::Value::String("networking".into()),
+        ]);
+
+        write_user_frontmatter(&path, &[("tags", tags)]).unwrap();
+
+        let content = fs::read_to_string(&path).unwrap();
+        assert!(content.contains("rate-limiting"));
+        assert!(content.contains("networking"));
+        assert!(content.contains("Body."));
     }
 
     #[test]
