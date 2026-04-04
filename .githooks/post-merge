@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "post-merge: installing binaries..."
+make install 2>&1 || {
+    echo ""
+    echo "WARNING: make install failed after pull."
+}
+
+echo "post-merge: done."
