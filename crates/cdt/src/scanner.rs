@@ -5,6 +5,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+/// (project_name, workspace_name, workspace_path)
+pub type WorkspacePath = (String, String, PathBuf);
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Workspace {
     pub project: String,
@@ -255,7 +258,7 @@ fn extract_json_u32(obj: &str, key: &str) -> Option<u32> {
 /// Collect (project, name, path) tuples — cheap directory listing, no git calls.
 pub fn collect_workspace_paths(
     root: &Path,
-) -> Result<Vec<(String, String, PathBuf)>, Box<dyn std::error::Error>> {
+) -> Result<Vec<WorkspacePath>, Box<dyn std::error::Error>> {
     let mut entries = Vec::new();
 
     for project_entry in fs::read_dir(root)? {
