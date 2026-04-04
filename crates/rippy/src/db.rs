@@ -9,6 +9,7 @@ pub struct ClipEntry {
     pub id: i64,
     pub content: String,
     #[serde(skip)]
+    #[allow(dead_code)]
     pub hash: String,
     pub timestamp: DateTime<Local>,
     pub app_name: Option<String>,

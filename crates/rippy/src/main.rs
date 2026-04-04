@@ -47,6 +47,13 @@ enum Commands {
         /// Entry ID
         id: i64,
     },
+    /// Print entry content to stdout by ID (for piping)
+    Get {
+        /// Entry ID
+        id: i64,
+    },
+    /// Save stdin as a clipboard entry
+    Save,
     /// Clear all clipboard history
     Clear,
     /// Install as a launchd service for 24/7 clipboard monitoring
@@ -121,6 +128,8 @@ fn run() -> Result {
             print!("{}", cmd_search(&query, count, json)?)
         }
         Some(Commands::Copy { id }) => println!("{}", cmd_copy(id)?),
+        Some(Commands::Get { id }) => cmd_get(id)?,
+        Some(Commands::Save) => println!("{}", cmd_save()?),
         Some(Commands::Clear) => println!("{}", cmd_clear()?),
         Some(Commands::Hotkey { action }) => cmd_hotkey(action)?,
         Some(Commands::Install) => println!("{}", cmd_install()?),
@@ -159,6 +168,25 @@ fn cmd_copy(id: i64) -> Result<String> {
             format!("Copied to clipboard: {}", truncate(&entry.content, 60))
         })
         .ok_or_else(|| format!("Entry {id} not found.").into())
+}
+
+fn cmd_get(id: i64) -> Result {
+    let entry = with_store(|store| store.get(id))?
+        .ok_or_else(|| -> Box<dyn std::error::Error> { format!("Entry {id} not found.").into() })?;
+    print!("{}", entry.content);
+    Ok(())
+}
+
+fn cmd_save() -> Result<String> {
+    use std::io::Read;
+    let mut content = String::new();
+    std::io::stdin().read_to_string(&mut content)?;
+    let content = content.trim_end_matches('\n');
+    if content.is_empty() {
+        return Err("No input provided. Pipe content to stdin: echo \"text\" | rippy save".into());
+    }
+    let id = with_store(|store| store.insert(content, None))?;
+    Ok(format!("Saved entry {id}: {}", truncate(content, 60)))
 }
 
 fn cmd_clear() -> Result<String> {
@@ -489,6 +517,7 @@ fn truncate(s: &str, max: usize) -> String {
 mod tests {
     use super::*;
     use chrono::TimeZone;
+    use std::path::Path;
     use std::process::Command;
 
     fn make_entry(id: i64, content: &str) -> db::ClipEntry {
@@ -612,6 +641,46 @@ mod tests {
             !stderr.contains("Info.plist=not bound"),
             "Info.plist must NOT be 'not bound', got: {stderr}"
         );
+    }
+
+    #[test]
+    fn get_subcommand_prints_raw_content() {
+        let store = db::Store::open(Path::new(":memory:")).unwrap();
+        let id = store.insert("hello piped world", None).unwrap();
+        let entry = store.get(id).unwrap().unwrap();
+        assert_eq!(entry.content, "hello piped world");
+    }
+
+    #[test]
+    fn get_subcommand_not_found() {
+        let store = db::Store::open(Path::new(":memory:")).unwrap();
+        assert!(store.get(9999).unwrap().is_none());
+    }
+
+    #[test]
+    fn save_trims_trailing_newline() {
+        let input = "hello world\n";
+        let content = input.trim_end_matches('\n');
+        assert_eq!(content, "hello world");
+    }
+
+    #[test]
+    fn save_rejects_empty_input() {
+        let input = "\n";
+        let content = input.trim_end_matches('\n');
+        assert!(content.is_empty());
+    }
+
+    #[test]
+    fn save_preserves_internal_newlines() {
+        let input = "line1\nline2\nline3\n";
+        let content = input.trim_end_matches('\n');
+        assert_eq!(content, "line1\nline2\nline3");
+
+        let store = db::Store::open(Path::new(":memory:")).unwrap();
+        let id = store.insert(content, None).unwrap();
+        let entry = store.get(id).unwrap().unwrap();
+        assert_eq!(entry.content, "line1\nline2\nline3");
     }
 
     /// A linker-signed binary (no explicit codesign) in a bundle leaves

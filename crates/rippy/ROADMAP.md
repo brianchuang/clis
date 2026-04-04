@@ -29,8 +29,8 @@ Make the picker more powerful without losing simplicity.
 
 Unix philosophy: composable, scriptable, searchable.
 
-- [ ] `yy get ID` — print entry to stdout for piping
-- [ ] `echo "foo" | yy save` — capture stdin as a clipboard entry
+- [x] `yy get ID` — print entry to stdout for piping
+- [x] `echo "foo" | yy save` — capture stdin as a clipboard entry
 - [ ] Semantic search via local embeddings (see below)
 - [ ] Multi-select — pick several entries and paste as a batch
 - [ ] Snippets mode — persistent saved clips separate from ephemeral history
