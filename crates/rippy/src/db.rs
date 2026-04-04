@@ -16,6 +16,14 @@ pub struct ClipEntry {
     pub pinned: bool,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct Snippet {
+    pub id: i64,
+    pub name: String,
+    pub content: String,
+    pub created_at: DateTime<Local>,
+}
+
 pub struct Store {
     conn: Connection,
 }
@@ -62,6 +70,14 @@ impl Store {
             CREATE INDEX IF NOT EXISTS idx_clips_hash ON clips(hash);
             CREATE INDEX IF NOT EXISTS idx_clips_ts ON clips(timestamp DESC);
             CREATE INDEX IF NOT EXISTS idx_clips_content ON clips(content);",
+        )?;
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS snippets (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                name       TEXT NOT NULL,
+                content    TEXT NOT NULL,
+                created_at INTEGER NOT NULL
+            );",
         )?;
         // Migration: add pinned column to existing databases
         let has_pinned: bool = conn
@@ -170,6 +186,54 @@ impl Store {
         self.conn
             .query_row("SELECT COUNT(*) FROM clips", [], |row| row.get::<_, i64>(0))
             .map(|n| n as usize)
+    }
+
+    // --- Snippet operations ---
+
+    pub fn insert_snippet(&self, name: &str, content: &str) -> Result<i64> {
+        let now = Local::now().timestamp();
+        self.conn.execute(
+            "INSERT INTO snippets (name, content, created_at) VALUES (?1, ?2, ?3)",
+            params![name, content, now],
+        )?;
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    pub fn list_snippets(&self) -> Result<Vec<Snippet>> {
+        self.conn
+            .prepare("SELECT id, name, content, created_at FROM snippets ORDER BY created_at DESC")?
+            .query_map([], |row| {
+                Ok(Snippet {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    content: row.get(2)?,
+                    created_at: Local.timestamp_opt(row.get::<_, i64>(3)?, 0).unwrap(),
+                })
+            })?
+            .collect()
+    }
+
+    pub fn get_snippet(&self, id: i64) -> Result<Option<Snippet>> {
+        self.conn
+            .query_row(
+                "SELECT id, name, content, created_at FROM snippets WHERE id = ?1",
+                params![id],
+                |row| {
+                    Ok(Snippet {
+                        id: row.get(0)?,
+                        name: row.get(1)?,
+                        content: row.get(2)?,
+                        created_at: Local.timestamp_opt(row.get::<_, i64>(3)?, 0).unwrap(),
+                    })
+                },
+            )
+            .optional()
+    }
+
+    pub fn delete_snippet(&self, id: i64) -> Result<bool> {
+        self.conn
+            .execute("DELETE FROM snippets WHERE id = ?1", params![id])
+            .map(|n| n > 0)
     }
 
     /// Delete the oldest unpinned entries to keep at most `max_entries` in the store.
@@ -448,6 +512,109 @@ mod tests {
         let store = temp_store();
         let id = store.insert("fresh", None).unwrap();
         assert!(!store.get(id).unwrap().unwrap().pinned);
+    }
+
+    // --- Snippet tests ---
+
+    #[test]
+    fn insert_and_list_snippets() {
+        let store = temp_store();
+        let id = store.insert_snippet("greeting", "Hello, world!").unwrap();
+        assert!(id > 0);
+
+        let snippets = store.list_snippets().unwrap();
+        assert_eq!(snippets.len(), 1);
+        assert_eq!(snippets[0].name, "greeting");
+        assert_eq!(snippets[0].content, "Hello, world!");
+    }
+
+    #[test]
+    fn get_snippet_by_id() {
+        let store = temp_store();
+        let id = store.insert_snippet("test", "content").unwrap();
+        let snippet = store.get_snippet(id).unwrap().unwrap();
+        assert_eq!(snippet.name, "test");
+        assert_eq!(snippet.content, "content");
+    }
+
+    #[test]
+    fn get_snippet_not_found() {
+        let store = temp_store();
+        assert!(store.get_snippet(9999).unwrap().is_none());
+    }
+
+    #[test]
+    fn delete_snippet() {
+        let store = temp_store();
+        let id = store.insert_snippet("tmp", "delete me").unwrap();
+        assert!(store.delete_snippet(id).unwrap());
+        assert!(store.get_snippet(id).unwrap().is_none());
+    }
+
+    #[test]
+    fn delete_snippet_not_found() {
+        let store = temp_store();
+        assert!(!store.delete_snippet(9999).unwrap());
+    }
+
+    #[test]
+    fn snippets_are_independent_from_clips() {
+        let store = temp_store();
+        store.insert("clip content", None).unwrap();
+        store.insert_snippet("snip", "snippet content").unwrap();
+
+        assert_eq!(store.count().unwrap(), 1); // only clips
+        assert_eq!(store.list_snippets().unwrap().len(), 1);
+
+        store.clear().unwrap();
+        assert_eq!(store.count().unwrap(), 0);
+        assert_eq!(
+            store.list_snippets().unwrap().len(),
+            1,
+            "clearing clips should not affect snippets"
+        );
+    }
+
+    #[test]
+    fn snippets_allow_duplicate_content() {
+        let store = temp_store();
+        let id1 = store.insert_snippet("first", "same content").unwrap();
+        let id2 = store.insert_snippet("second", "same content").unwrap();
+        assert_ne!(id1, id2, "snippets should not deduplicate");
+        assert_eq!(store.list_snippets().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn list_snippets_ordered_by_newest_first() {
+        let store = temp_store();
+        let id1 = store.insert_snippet("old", "first").unwrap();
+        // Force different timestamps
+        store
+            .conn
+            .execute(
+                "UPDATE snippets SET created_at = 1000 WHERE id = ?1",
+                params![id1],
+            )
+            .unwrap();
+        store.insert_snippet("new", "second").unwrap();
+
+        let snippets = store.list_snippets().unwrap();
+        assert_eq!(snippets[0].name, "new");
+        assert_eq!(snippets[1].name, "old");
+    }
+
+    #[test]
+    fn serialize_snippet_to_json() {
+        let snippet = Snippet {
+            id: 1,
+            name: "test".to_string(),
+            content: "hello".to_string(),
+            created_at: Local.timestamp_opt(1700000000, 0).unwrap(),
+        };
+        let json: serde_json::Value = serde_json::to_value(&snippet).unwrap();
+        assert_eq!(json["id"], 1);
+        assert_eq!(json["name"], "test");
+        assert_eq!(json["content"], "hello");
     }
 }
 

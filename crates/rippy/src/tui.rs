@@ -1,6 +1,6 @@
 use crate::clipboard;
 use crate::config::Config;
-use crate::db::{ClipEntry, Store};
+use crate::db::{ClipEntry, Snippet, Store};
 use crate::highlight;
 use crate::tag;
 use crate::watcher::Watcher;
@@ -19,6 +19,12 @@ use tui_core::{Mode, NavAction};
 
 // --- Actions (Elm-style message type) ---
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum View {
+    History,
+    Snippets,
+}
+
 enum Action {
     Nav(NavAction),
     CopyAndQuit,
@@ -26,6 +32,7 @@ enum Action {
     TogglePinSelected,
     TogglePreview,
     ToggleMultiSelect,
+    ToggleView,
     ScrollPreviewDown,
     ScrollPreviewUp,
 }
@@ -48,12 +55,19 @@ struct App {
     show_preview: bool,
     preview_scroll: usize,
     multi_selected: HashSet<i64>,
+    view: View,
+    snippets: Vec<Snippet>,
+    snippets_filtered: Vec<usize>,
+    snippets_selected: usize,
+    snippets_scroll_offset: usize,
 }
 
 impl App {
     fn new(store: Store) -> Self {
         let entries = store.all().unwrap_or_default();
         let filtered = tui_core::compute_filtered(&entries, "", |e| e.content.clone());
+        let snippets = store.list_snippets().unwrap_or_default();
+        let snippets_filtered = (0..snippets.len()).collect();
         App {
             store,
             entries,
@@ -70,6 +84,11 @@ impl App {
             show_preview: true,
             preview_scroll: 0,
             multi_selected: HashSet::new(),
+            view: View::History,
+            snippets,
+            snippets_filtered,
+            snippets_selected: 0,
+            snippets_scroll_offset: 0,
         }
     }
 
@@ -88,6 +107,34 @@ impl App {
         } else {
             self.clamp_selection();
         }
+        self.refresh_snippets();
+    }
+
+    fn refresh_snippets(&mut self) {
+        self.snippets = self.store.list_snippets().unwrap_or_default();
+        self.refilter_snippets();
+    }
+
+    fn refilter_snippets(&mut self) {
+        self.snippets_filtered = tui_core::compute_filtered(&self.snippets, &self.query, |s| {
+            format!("{} {}", s.name, s.content)
+        });
+        self.clamp_snippets_selection();
+    }
+
+    fn clamp_snippets_selection(&mut self) {
+        if self.snippets_filtered.is_empty() {
+            self.snippets_selected = 0;
+            self.snippets_scroll_offset = 0;
+        } else {
+            self.snippets_selected = self.snippets_selected.min(self.snippets_filtered.len() - 1);
+        }
+    }
+
+    fn selected_snippet(&self) -> Option<&Snippet> {
+        self.snippets_filtered
+            .get(self.snippets_selected)
+            .map(|&i| &self.snippets[i])
     }
 
     fn refilter(&mut self) {
@@ -129,6 +176,11 @@ fn handle_key(key: crossterm::event::KeyEvent, mode: Mode, pending: &mut Option<
         return Action::Nav(NavAction::Noop);
     }
 
+    // Tab toggles between History and Snippets views (both modes)
+    if key.code == KeyCode::Tab {
+        return Action::ToggleView;
+    }
+
     // Normal mode: s toggles pin, p toggles preview, Ctrl+j/k scrolls preview
     if mode == Mode::Normal {
         if let KeyCode::Char('s') = key.code {
@@ -160,7 +212,10 @@ fn handle_key(key: crossterm::event::KeyEvent, mode: Mode, pending: &mut Option<
 }
 
 fn apply_action(app: &mut App, action: Action) {
-    let prev_selected = app.selected;
+    let prev_selected = match app.view {
+        View::History => app.selected,
+        View::Snippets => app.snippets_selected,
+    };
     match action {
         Action::Nav(nav) => match nav {
             NavAction::Noop => {}
@@ -173,18 +228,45 @@ fn apply_action(app: &mut App, action: Action) {
             }
             NavAction::TypeChar(c) => {
                 app.query.push(c);
-                app.refilter();
-                app.reset_selection();
+                match app.view {
+                    View::History => {
+                        app.refilter();
+                        app.reset_selection();
+                    }
+                    View::Snippets => {
+                        app.refilter_snippets();
+                        app.snippets_selected = 0;
+                        app.snippets_scroll_offset = 0;
+                    }
+                }
             }
             NavAction::Backspace => {
                 app.query.pop();
-                app.refilter();
-                app.reset_selection();
+                match app.view {
+                    View::History => {
+                        app.refilter();
+                        app.reset_selection();
+                    }
+                    View::Snippets => {
+                        app.refilter_snippets();
+                        app.snippets_selected = 0;
+                        app.snippets_scroll_offset = 0;
+                    }
+                }
             }
             NavAction::ClearSearch => {
                 app.query.clear();
-                app.refilter();
-                app.reset_selection();
+                match app.view {
+                    View::History => {
+                        app.refilter();
+                        app.reset_selection();
+                    }
+                    View::Snippets => {
+                        app.refilter_snippets();
+                        app.snippets_selected = 0;
+                        app.snippets_scroll_offset = 0;
+                    }
+                }
             }
             ref nav_action @ (NavAction::MoveUp
             | NavAction::MoveDown
@@ -193,54 +275,105 @@ fn apply_action(app: &mut App, action: Action) {
             | NavAction::HalfPageUp
             | NavAction::HalfPageDown
             | NavAction::NextMatch
-            | NavAction::PrevMatch) => {
-                app.selected = tui_core::apply_navigation(
-                    nav_action,
-                    app.selected,
-                    app.filtered.len(),
-                    app.list_height,
-                );
+            | NavAction::PrevMatch) => match app.view {
+                View::History => {
+                    app.selected = tui_core::apply_navigation(
+                        nav_action,
+                        app.selected,
+                        app.filtered.len(),
+                        app.list_height,
+                    );
+                }
+                View::Snippets => {
+                    app.snippets_selected = tui_core::apply_navigation(
+                        nav_action,
+                        app.snippets_selected,
+                        app.snippets_filtered.len(),
+                        app.list_height,
+                    );
+                }
+            },
+        },
+        Action::CopyAndQuit => match app.view {
+            View::History => {
+                if app.multi_selected.is_empty() {
+                    if let Some(entry) = app.selected_entry() {
+                        clipboard::set_clipboard(&entry.content);
+                        app.copied_id = Some(entry.id);
+                    }
+                } else {
+                    let combined: Vec<&str> = app
+                        .filtered
+                        .iter()
+                        .map(|&i| &app.entries[i])
+                        .filter(|e| app.multi_selected.contains(&e.id))
+                        .map(|e| e.content.as_str())
+                        .collect();
+                    clipboard::set_clipboard(&combined.join("\n"));
+                }
+                app.should_quit = true;
+            }
+            View::Snippets => {
+                if let Some(snippet) = app.selected_snippet() {
+                    clipboard::set_clipboard(&snippet.content);
+                    app.copied_id = Some(snippet.id);
+                }
+                app.should_quit = true;
             }
         },
-        Action::CopyAndQuit => {
-            if app.multi_selected.is_empty() {
-                // Single copy: just the current entry
+        Action::DeleteSelected => match app.view {
+            View::History => {
                 if let Some(entry) = app.selected_entry() {
-                    clipboard::set_clipboard(&entry.content);
-                    app.copied_id = Some(entry.id);
+                    let id = entry.id;
+                    app.store.delete(id).ok();
+                    app.refresh();
                 }
-            } else {
-                // Batch copy: concatenate selected entries in list order
-                let combined: Vec<&str> = app
-                    .filtered
-                    .iter()
-                    .map(|&i| &app.entries[i])
-                    .filter(|e| app.multi_selected.contains(&e.id))
-                    .map(|e| e.content.as_str())
-                    .collect();
-                clipboard::set_clipboard(&combined.join("\n"));
             }
-            app.should_quit = true;
-        }
-        Action::DeleteSelected => {
-            if let Some(entry) = app.selected_entry() {
-                let id = entry.id;
-                app.store.delete(id).ok();
-                app.refresh();
+            View::Snippets => {
+                if let Some(snippet) = app.selected_snippet() {
+                    let id = snippet.id;
+                    app.store.delete_snippet(id).ok();
+                    app.refresh_snippets();
+                }
             }
-        }
+        },
         Action::TogglePinSelected => {
-            if let Some(entry) = app.selected_entry() {
-                let id = entry.id;
-                app.store.toggle_pin(id).ok();
-                app.refresh();
+            if app.view == View::History {
+                if let Some(entry) = app.selected_entry() {
+                    let id = entry.id;
+                    app.store.toggle_pin(id).ok();
+                    app.refresh();
+                }
             }
         }
         Action::ToggleMultiSelect => {
-            if let Some(entry) = app.selected_entry() {
-                let id = entry.id;
-                if !app.multi_selected.remove(&id) {
-                    app.multi_selected.insert(id);
+            if app.view == View::History {
+                if let Some(entry) = app.selected_entry() {
+                    let id = entry.id;
+                    if !app.multi_selected.remove(&id) {
+                        app.multi_selected.insert(id);
+                    }
+                }
+            }
+        }
+        Action::ToggleView => {
+            app.view = match app.view {
+                View::History => View::Snippets,
+                View::Snippets => View::History,
+            };
+            app.query.clear();
+            app.mode = Mode::Normal;
+            app.pending_key = None;
+            app.preview_scroll = 0;
+            match app.view {
+                View::History => {
+                    app.refilter();
+                    app.reset_selection();
+                }
+                View::Snippets => {
+                    app.refilter_snippets();
+                    app.snippets_selected = 0;
+                    app.snippets_scroll_offset = 0;
                 }
             }
         }
@@ -256,7 +389,11 @@ fn apply_action(app: &mut App, action: Action) {
         }
     }
     // Reset preview scroll when selection changes
-    if app.selected != prev_selected {
+    let new_selected = match app.view {
+        View::History => app.selected,
+        View::Snippets => app.snippets_selected,
+    };
+    if new_selected != prev_selected {
         app.preview_scroll = 0;
     }
 }
@@ -336,8 +473,12 @@ fn render(f: &mut Frame, app: &mut App) {
         ])
         .split(f.area());
 
+    let title = match app.view {
+        View::History => "rippy",
+        View::Snippets => "rippy [snippets]",
+    };
     f.render_widget(
-        tui_core::render_search_bar("rippy", &app.query, app.mode, "Type to search\u{2026}"),
+        tui_core::render_search_bar(title, &app.query, app.mode, "Type to search\u{2026}"),
         chunks[0],
     );
 
@@ -356,24 +497,54 @@ fn render(f: &mut Frame, app: &mut App) {
 
     let list_height = list_area.height as usize;
     app.list_height = list_height;
-    tui_core::adjust_scroll(app.selected, &mut app.scroll_offset, list_height);
-    f.render_widget(
-        render_clip_list(
-            &app.entries,
-            &app.filtered,
-            app.selected,
-            app.scroll_offset,
-            list_height,
-            app.copied_id,
-            &app.multi_selected,
-        ),
-        list_area,
-    );
+
+    match app.view {
+        View::History => {
+            tui_core::adjust_scroll(app.selected, &mut app.scroll_offset, list_height);
+            f.render_widget(
+                render_clip_list(
+                    &app.entries,
+                    &app.filtered,
+                    app.selected,
+                    app.scroll_offset,
+                    list_height,
+                    app.copied_id,
+                    &app.multi_selected,
+                ),
+                list_area,
+            );
+        }
+        View::Snippets => {
+            tui_core::adjust_scroll(
+                app.snippets_selected,
+                &mut app.snippets_scroll_offset,
+                list_height,
+            );
+            f.render_widget(
+                render_snippet_list(
+                    &app.snippets,
+                    &app.snippets_filtered,
+                    app.snippets_selected,
+                    app.snippets_scroll_offset,
+                    list_height,
+                    app.copied_id,
+                ),
+                list_area,
+            );
+        }
+    }
 
     f.render_widget(
         render_status_bar(
-            app.filtered.len(),
-            app.entries.len(),
+            app.view,
+            match app.view {
+                View::History => app.filtered.len(),
+                View::Snippets => app.snippets_filtered.len(),
+            },
+            match app.view {
+                View::History => app.entries.len(),
+                View::Snippets => app.snippets.len(),
+            },
             app.copied_id,
             app.mode,
             app.show_preview,
@@ -383,22 +554,40 @@ fn render(f: &mut Frame, app: &mut App) {
     );
 
     if app.show_help {
-        let bindings: &[(&str, &str)] = &[
-            ("j / k", "Move down / up"),
-            ("n / N", "Next / previous (wrapping)"),
-            ("g g", "Go to top"),
-            ("G", "Go to bottom"),
-            ("Ctrl-d / Ctrl-u", "Half-page down / up"),
-            ("Space", "Toggle multi-select"),
-            ("s", "Toggle pin (starred)"),
-            ("p", "Toggle preview pane"),
-            ("Ctrl-j / Ctrl-k", "Scroll preview down / up"),
-            ("/", "Search"),
-            ("Enter", "Copy and quit"),
-            ("d d", "Delete entry"),
-            ("Esc / q", "Quit"),
-            ("?", "Toggle this help"),
-        ];
+        let bindings: &[(&str, &str)] = match app.view {
+            View::History => &[
+                ("j / k", "Move down / up"),
+                ("n / N", "Next / previous (wrapping)"),
+                ("g g", "Go to top"),
+                ("G", "Go to bottom"),
+                ("Ctrl-d / Ctrl-u", "Half-page down / up"),
+                ("Space", "Toggle multi-select"),
+                ("s", "Toggle pin (starred)"),
+                ("p", "Toggle preview pane"),
+                ("Ctrl-j / Ctrl-k", "Scroll preview down / up"),
+                ("Tab", "Switch to snippets"),
+                ("/", "Search"),
+                ("Enter", "Copy and quit"),
+                ("d d", "Delete entry"),
+                ("Esc / q", "Quit"),
+                ("?", "Toggle this help"),
+            ],
+            View::Snippets => &[
+                ("j / k", "Move down / up"),
+                ("n / N", "Next / previous (wrapping)"),
+                ("g g", "Go to top"),
+                ("G", "Go to bottom"),
+                ("Ctrl-d / Ctrl-u", "Half-page down / up"),
+                ("p", "Toggle preview pane"),
+                ("Ctrl-j / Ctrl-k", "Scroll preview down / up"),
+                ("Tab", "Switch to history"),
+                ("/", "Search"),
+                ("Enter", "Copy and quit"),
+                ("d d", "Delete snippet"),
+                ("Esc / q", "Quit"),
+                ("?", "Toggle this help"),
+            ],
+        };
         let (widget, area) = tui_core::render_help_overlay("rippy", bindings, f.area());
         f.render_widget(Clear, area);
         f.render_widget(widget, area);
@@ -505,6 +694,62 @@ fn tag_color(tag: tag::ContentTag, is_selected: bool) -> Color {
     }
 }
 
+fn render_snippet_list<'a>(
+    snippets: &'a [Snippet],
+    filtered: &[usize],
+    selected: usize,
+    scroll_offset: usize,
+    list_height: usize,
+    copied_id: Option<i64>,
+) -> List<'a> {
+    let items: Vec<ListItem> = filtered
+        .iter()
+        .enumerate()
+        .skip(scroll_offset)
+        .take(list_height)
+        .map(|(i, &idx)| {
+            let s = &snippets[idx];
+            let is_selected = i == selected;
+            let preview: String = s
+                .content
+                .lines()
+                .next()
+                .unwrap_or("")
+                .chars()
+                .take(200)
+                .collect();
+
+            let style = if is_selected {
+                Style::default().bg(Color::DarkGray).fg(Color::White)
+            } else if Some(s.id) == copied_id {
+                Style::default().fg(Color::Green)
+            } else {
+                Style::default()
+            };
+
+            let name_color = if is_selected {
+                Color::Cyan
+            } else {
+                Color::Yellow
+            };
+
+            ListItem::new(Line::from(vec![
+                Span::styled(
+                    format!("{:>5} ", s.id),
+                    style.patch(Style::default().fg(Color::DarkGray)),
+                ),
+                Span::styled(
+                    format!("{:<20} ", s.name),
+                    style.patch(Style::default().fg(name_color)),
+                ),
+                Span::styled(format!("\u{2502} {preview}"), style),
+            ]))
+        })
+        .collect();
+
+    List::new(items).block(Block::default().borders(Borders::NONE))
+}
+
 fn render_preview(f: &mut Frame, app: &App, area: Rect) {
     let block = Block::default()
         .borders(Borders::LEFT)
@@ -519,18 +764,23 @@ fn render_preview(f: &mut Frame, app: &App, area: Rect) {
     let inner = block.inner(area);
     f.render_widget(block, area);
 
-    let entry = match app.selected_entry() {
-        Some(e) => e,
-        None => return,
+    let content = match app.view {
+        View::History => match app.selected_entry() {
+            Some(e) => &e.content,
+            None => return,
+        },
+        View::Snippets => match app.selected_snippet() {
+            Some(s) => &s.content,
+            None => return,
+        },
     };
 
     let preview_height = inner.height as usize;
-    let is_code = tag::detect(&entry.content) == tag::ContentTag::Code;
+    let is_code = tag::detect(content) == tag::ContentTag::Code;
     let lines: Vec<Line> = if is_code {
-        highlight::highlight_content(&entry.content)
+        highlight::highlight_content(content)
     } else {
-        entry
-            .content
+        content
             .lines()
             .enumerate()
             .map(|(i, line)| {
@@ -556,6 +806,7 @@ fn render_preview(f: &mut Frame, app: &App, area: Rect) {
 }
 
 fn render_status_bar(
+    view: View,
     count: usize,
     total: usize,
     copied_id: Option<i64>,
@@ -576,19 +827,28 @@ fn render_status_bar(
                 } else {
                     format!(" {count}/{total}")
                 };
-                let mut parts: Vec<&str> = vec![
-                    &count_str,
-                    "j/k move",
-                    "Space select",
-                    "Enter copy",
-                    "s pin",
-                    "dd delete",
-                    "p preview",
-                ];
+                let mut parts: Vec<&str> = match view {
+                    View::History => vec![
+                        &count_str,
+                        "j/k move",
+                        "Space select",
+                        "Enter copy",
+                        "s pin",
+                        "dd delete",
+                        "p preview",
+                    ],
+                    View::Snippets => vec![
+                        &count_str,
+                        "j/k move",
+                        "Enter copy",
+                        "dd delete",
+                        "p preview",
+                    ],
+                };
                 if show_preview {
                     parts.push("C-j/k scroll");
                 }
-                parts.extend_from_slice(&["/ search", "? help", "q quit"]);
+                parts.extend_from_slice(&["Tab view", "/ search", "? help", "q quit"]);
                 parts.join(" \u{2502} ")
             }
             Mode::Insert => format!(" {count}/{total} \u{2502} type to filter \u{2502} Enter copy \u{2502} Esc normal mode"),
@@ -656,6 +916,90 @@ mod tests {
     #[test]
     fn multi_select_empty_list_is_noop() {
         let mut app = test_app(&[]);
+        apply_action(&mut app, Action::ToggleMultiSelect);
+        assert!(app.multi_selected.is_empty());
+    }
+
+    // --- Snippets view tests ---
+
+    fn test_app_with_snippets(clips: &[&str], snippets: &[(&str, &str)]) -> App {
+        let store = Store::open(Path::new(":memory:")).unwrap();
+        for c in clips {
+            store.insert(c, None).unwrap();
+        }
+        for (name, content) in snippets {
+            store.insert_snippet(name, content).unwrap();
+        }
+        App::new(store)
+    }
+
+    #[test]
+    fn toggle_view_switches_to_snippets() {
+        let mut app = test_app_with_snippets(&["clip"], &[("snip", "content")]);
+        assert_eq!(app.view, View::History);
+
+        apply_action(&mut app, Action::ToggleView);
+        assert_eq!(app.view, View::Snippets);
+        assert_eq!(app.snippets_filtered.len(), 1);
+    }
+
+    #[test]
+    fn toggle_view_back_to_history() {
+        let mut app = test_app_with_snippets(&["clip"], &[("snip", "content")]);
+        apply_action(&mut app, Action::ToggleView);
+        apply_action(&mut app, Action::ToggleView);
+        assert_eq!(app.view, View::History);
+    }
+
+    #[test]
+    fn toggle_view_clears_query() {
+        let mut app = test_app_with_snippets(&["clip"], &[("snip", "content")]);
+        apply_action(&mut app, Action::Nav(NavAction::EnterInsert));
+        apply_action(&mut app, Action::Nav(NavAction::TypeChar('x')));
+        assert_eq!(app.query, "x");
+
+        apply_action(&mut app, Action::ToggleView);
+        assert!(app.query.is_empty());
+        assert_eq!(app.mode, Mode::Normal);
+    }
+
+    #[test]
+    fn snippets_navigation() {
+        let mut app = test_app_with_snippets(&[], &[("a", "aaa"), ("b", "bbb"), ("c", "ccc")]);
+        apply_action(&mut app, Action::ToggleView);
+        assert_eq!(app.snippets_selected, 0);
+
+        apply_action(&mut app, Action::Nav(NavAction::MoveDown));
+        assert_eq!(app.snippets_selected, 1);
+
+        apply_action(&mut app, Action::Nav(NavAction::MoveUp));
+        assert_eq!(app.snippets_selected, 0);
+    }
+
+    #[test]
+    fn snippets_delete() {
+        let mut app = test_app_with_snippets(&[], &[("a", "aaa"), ("b", "bbb")]);
+        apply_action(&mut app, Action::ToggleView);
+        assert_eq!(app.snippets_filtered.len(), 2);
+
+        apply_action(&mut app, Action::DeleteSelected);
+        assert_eq!(app.snippets_filtered.len(), 1);
+    }
+
+    #[test]
+    fn snippets_pin_is_noop() {
+        let mut app = test_app_with_snippets(&[], &[("a", "aaa")]);
+        apply_action(&mut app, Action::ToggleView);
+        // TogglePinSelected should be a no-op in snippets view
+        apply_action(&mut app, Action::TogglePinSelected);
+        // No crash, still one snippet
+        assert_eq!(app.snippets_filtered.len(), 1);
+    }
+
+    #[test]
+    fn snippets_multi_select_is_noop() {
+        let mut app = test_app_with_snippets(&[], &[("a", "aaa")]);
+        apply_action(&mut app, Action::ToggleView);
         apply_action(&mut app, Action::ToggleMultiSelect);
         assert!(app.multi_selected.is_empty());
     }
