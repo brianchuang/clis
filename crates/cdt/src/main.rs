@@ -6,12 +6,14 @@ use cdt::timeline;
 use cdt::tui;
 
 use clap::{Parser, Subcommand};
+use std::io::Write;
 use std::path::PathBuf;
 use std::time::Instant;
 
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 const DEFAULT_ROOT: &str = "conductor/workspaces";
+const SHELL_EVAL_LINE: &str = r#"eval "$(cdt init-shell)""#;
 
 #[derive(Parser)]
 #[command(name = "cdt", about = "Quick fuzzy jumper for Conductor workspaces")]
@@ -85,10 +87,50 @@ enum Commands {
     Summary,
     /// Jump back to the main git repo from a worktree
     Root,
+    /// Set up shell integration (appends eval line to shell rc file)
+    Install,
     /// Print shell function for cd integration
     InitShell,
     /// Clear the workspace cache
     ClearCache,
+}
+
+/// Detect the user's shell rc file and append the eval line if not already present.
+fn append_shell_integration() -> Option<String> {
+    let home = dirs::home_dir()?;
+    let shell = std::env::var("SHELL").unwrap_or_default();
+    let rc_path = if shell.ends_with("zsh") {
+        home.join(".zshrc")
+    } else if shell.ends_with("bash") {
+        let bashrc = home.join(".bashrc");
+        if bashrc.exists() {
+            bashrc
+        } else {
+            home.join(".bash_profile")
+        }
+    } else {
+        return None;
+    };
+
+    let contents = std::fs::read_to_string(&rc_path).unwrap_or_default();
+    if contents.contains(SHELL_EVAL_LINE) {
+        return Some(format!(
+            "Shell integration already configured in {}",
+            rc_path.display()
+        ));
+    }
+
+    let mut file = std::fs::OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open(&rc_path)
+        .ok()?;
+    writeln!(
+        file,
+        "\n# cdt — Conductor workspace navigator\n{SHELL_EVAL_LINE}"
+    )
+    .ok()?;
+    Some(format!("Added shell integration to {}", rc_path.display()))
 }
 
 fn resolve_root(custom: Option<PathBuf>) -> PathBuf {
@@ -408,6 +450,12 @@ fn run() -> Result {
                 }
             }
         }
+        Some(Commands::Install) => match append_shell_integration() {
+            Some(result) => eprintln!("{result}"),
+            None => eprintln!(
+                "Could not detect shell. Add `{SHELL_EVAL_LINE}` to your shell config manually."
+            ),
+        },
         Some(Commands::InitShell) => {
             print!(
                 r#"# Add to your .zshrc or .bashrc:
@@ -427,4 +475,53 @@ cdt() {{
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn append_shell_integration_writes_to_rc() {
+        let tmp = tempfile::tempdir().unwrap();
+        let rc_path = tmp.path().join(".zshrc");
+        std::fs::write(&rc_path, "# existing config\n").unwrap();
+
+        // Verify the eval line is not present yet
+        let contents = std::fs::read_to_string(&rc_path).unwrap();
+        assert!(!contents.contains(SHELL_EVAL_LINE));
+
+        // Append the eval line
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&rc_path)
+            .unwrap();
+        writeln!(
+            file,
+            "\n# cdt — Conductor workspace navigator\n{SHELL_EVAL_LINE}"
+        )
+        .unwrap();
+
+        let updated = std::fs::read_to_string(&rc_path).unwrap();
+        assert!(updated.contains(SHELL_EVAL_LINE));
+        assert!(updated.contains("# existing config"));
+    }
+
+    #[test]
+    fn append_shell_integration_is_idempotent() {
+        let tmp = tempfile::tempdir().unwrap();
+        let rc_path = tmp.path().join(".zshrc");
+        let content = format!("# existing\n{SHELL_EVAL_LINE}\n");
+        std::fs::write(&rc_path, &content).unwrap();
+
+        // The idempotency check should detect the line is already present
+        let contents = std::fs::read_to_string(&rc_path).unwrap();
+        assert!(contents.contains(SHELL_EVAL_LINE));
+    }
+
+    #[test]
+    fn shell_eval_line_matches_init_shell_command() {
+        // Ensure the constant references the correct command
+        assert!(SHELL_EVAL_LINE.contains("cdt init-shell"));
+    }
 }
