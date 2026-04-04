@@ -71,6 +71,20 @@ fn get_tags(data: &serde_yaml::Value, key: &str) -> Option<Vec<String>> {
     })
 }
 
+fn compute_current_interval(last_reviewed: Option<&str>, next_review: Option<&str>) -> u32 {
+    match (last_reviewed, next_review) {
+        (Some(lr), Some(nr)) => {
+            let lr_date = chrono::NaiveDate::parse_from_str(lr, "%Y-%m-%d");
+            let nr_date = chrono::NaiveDate::parse_from_str(nr, "%Y-%m-%d");
+            match (lr_date, nr_date) {
+                (Ok(lr), Ok(nr)) => (nr - lr).num_days().max(1) as u32,
+                _ => 1,
+            }
+        }
+        _ => 1,
+    }
+}
+
 pub fn parse_concept(file_path: &Path) -> Concept {
     let raw = fs::read_to_string(file_path).unwrap_or_default();
     let (data, body) = parse_frontmatter(&raw);
@@ -80,6 +94,13 @@ pub fn parse_concept(file_path: &Path) -> Concept {
         .unwrap_or_default()
         .to_string_lossy()
         .to_string();
+
+    let last_reviewed = get_str(&data, "_last_reviewed");
+    let next_review = get_str(&data, "_next_review");
+    let current_interval = compute_current_interval(
+        last_reviewed.as_deref(),
+        next_review.as_deref(),
+    );
 
     Concept {
         path: file_path.to_string_lossy().to_string(),
@@ -91,8 +112,9 @@ pub fn parse_concept(file_path: &Path) -> Concept {
 
         mastery: get_f64(&data, "_mastery").unwrap_or(0.0),
         review_count: get_u32(&data, "_review_count").unwrap_or(0),
-        last_reviewed: get_str(&data, "_last_reviewed"),
-        next_review: get_str(&data, "_next_review"),
+        current_interval,
+        last_reviewed,
+        next_review,
         last_prompt_type: get_str(&data, "_last_prompt_type"),
 
         wikilinks: extract_wikilinks(&body),

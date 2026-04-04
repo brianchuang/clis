@@ -10,7 +10,7 @@ use learn::parse::review::{parse_answered_reviews, parse_graded_items, resolve_c
 use learn::schedule::{next_interval_days, update_mastery};
 use learn::select::get_due_concepts;
 use learn::types::ReviewItem;
-use learn::write::frontmatter::write_system_frontmatter;
+use learn::write::frontmatter::{initialize_system_fields, write_system_frontmatter};
 use learn::write::review_session::write_review_session;
 
 #[derive(Parser)]
@@ -294,6 +294,15 @@ fn main() {
                     .as_deref()
                     .or(config.default_domain.as_deref());
 
+                // Initialize system fields before querying due concepts
+                let concepts_dir = vault_root.join("Concepts");
+                let init_pattern = concepts_dir.join("**/*.md").to_string_lossy().to_string();
+                for file in glob::glob(&init_pattern).unwrap().flatten() {
+                    if let Err(e) = initialize_system_fields(&file, &today) {
+                        eprintln!("Warning: failed to initialize {}: {e}", file.display());
+                    }
+                }
+
                 let due = get_due_concepts(
                     &vault_root,
                     domain_filter,
@@ -408,7 +417,7 @@ fn main() {
 
                     let concept_file = Path::new(&concept_path);
                     let concept = parse_concept(concept_file);
-                    let interval = next_interval_days(item.score, concept.review_count);
+                    let interval = next_interval_days(item.score, concept.current_interval);
                     let new_mastery = update_mastery(concept.mastery, item.score);
 
                     let next_date = chrono::NaiveDate::parse_from_str(&today, "%Y-%m-%d")

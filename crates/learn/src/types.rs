@@ -10,6 +10,7 @@ pub struct Concept {
     // system-owned (always present after first encounter)
     pub mastery: f64,
     pub review_count: u32,
+    pub current_interval: u32,
     pub last_reviewed: Option<String>,
     pub next_review: Option<String>,
     pub last_prompt_type: Option<String>,
@@ -24,14 +25,6 @@ pub struct ReviewItem {
     pub concept_term: String,
     pub prompt_type: String,
     pub prompt: String,
-}
-
-pub struct Grade {
-    pub concept_path: String,
-    pub score: u32,
-    pub feedback: String,
-    pub hint: String,
-    pub next_review_days: u32,
 }
 
 pub struct VaultConfig {

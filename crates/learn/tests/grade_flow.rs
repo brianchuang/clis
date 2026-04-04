@@ -1,14 +1,13 @@
 use std::fs;
-use std::path::Path;
 
 use tempfile::TempDir;
 
 use learn::parse::concept::parse_concept;
 use learn::parse::review::parse_graded_items;
 use learn::schedule::{next_interval_days, update_mastery};
-use learn::types::{Grade, ReviewItem};
+use learn::types::ReviewItem;
 use learn::write::frontmatter::write_system_frontmatter;
-use learn::write::review_session::{fill_grades, write_review_session};
+use learn::write::review_session::write_review_session;
 
 #[test]
 fn full_grade_flow() {
@@ -17,6 +16,7 @@ fn full_grade_flow() {
     fs::create_dir_all(&concepts_dir).unwrap();
 
     // Create a concept with system fields
+    // _last_reviewed=2025-01-12, _next_review=2025-01-15 → current_interval=3
     let concept_path = concepts_dir.join("Token Bucket.md");
     fs::write(
         &concept_path,
@@ -25,6 +25,7 @@ term: Token Bucket
 domain: Systems
 _mastery: 0.2
 _review_count: 2
+_last_reviewed: "2025-01-12"
 _next_review: "2025-01-15"
 ---
 A token bucket controls request rate.
@@ -44,33 +45,24 @@ A token bucket controls request rate.
 
     let review_path = write_review_session(dir.path(), &items, date, false).unwrap();
 
-    // Simulate user filling in an answer + agent grading
+    // Simulate user filling in an answer + score
     let content = fs::read_to_string(&review_path).unwrap();
     let with_answer = content.replace(
         "My answer:\n\n\nScore:",
-        "My answer:\nToken bucket allows bursts, leaky bucket smooths.\n\nScore:",
+        "My answer:\nToken bucket allows bursts, leaky bucket smooths.\n\nScore: 4",
     );
     fs::write(&review_path, &with_answer).unwrap();
 
-    // Fill grades
-    let concept = parse_concept(&concept_path);
-    let interval = next_interval_days(4, concept.review_count);
-    let new_mastery = update_mastery(concept.mastery, 4);
-
-    let grades = vec![Grade {
-        concept_path: concept_path.to_string_lossy().to_string(),
-        score: 4,
-        feedback: "Good comparison.".into(),
-        hint: "Consider queue depth.".into(),
-        next_review_days: interval,
-    }];
-
-    fill_grades(Path::new(&review_path), &grades).unwrap();
-
-    // Verify grades were filled
-    let graded = parse_graded_items(Path::new(&review_path));
+    // Parse graded items from the review file
+    let graded = parse_graded_items(std::path::Path::new(&review_path));
     assert_eq!(graded.len(), 1);
     assert_eq!(graded[0].score, 4);
+
+    // Compute next interval using current_interval (not review_count)
+    let concept = parse_concept(&concept_path);
+    assert_eq!(concept.current_interval, 3); // 2025-01-15 - 2025-01-12 = 3 days
+    let interval = next_interval_days(graded[0].score, concept.current_interval);
+    let new_mastery = update_mastery(concept.mastery, graded[0].score);
 
     // Update concept frontmatter
     let next_date = chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d").unwrap()
@@ -104,6 +96,8 @@ A token bucket controls request rate.
     assert!(updated.mastery > 0.2, "mastery should increase");
     assert_eq!(updated.review_count, 3);
     assert_eq!(updated.last_reviewed.as_deref(), Some(date));
+    // Score 4 with interval 3 → next interval = ceil(3 * 1.5) = 5
+    assert_eq!(interval, 5);
     // User-owned fields should be untouched
     assert_eq!(updated.term.as_deref(), Some("Token Bucket"));
     assert_eq!(updated.domain.as_deref(), Some("Systems"));

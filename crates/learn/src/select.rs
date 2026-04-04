@@ -2,7 +2,6 @@ use std::path::Path;
 
 use crate::parse::concept::parse_concept;
 use crate::types::Concept;
-use crate::write::frontmatter::initialize_system_fields;
 
 fn today_string() -> String {
     chrono::Local::now().format("%Y-%m-%d").to_string()
@@ -26,9 +25,6 @@ pub fn get_due_concepts(
     let mut concepts: Vec<Concept> = Vec::new();
 
     for file in files {
-        // Initialize system fields on first encounter
-        initialize_system_fields(&file, &date)?;
-        // Re-parse after potential initialization
         let concept = parse_concept(&file);
 
         // Filter: due today or earlier, or never reviewed
