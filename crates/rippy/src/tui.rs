@@ -1,6 +1,7 @@
 use crate::clipboard;
 use crate::config::Config;
 use crate::db::{ClipEntry, Store};
+use crate::tag;
 use crate::watcher::Watcher;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use crossterm::terminal::{
@@ -20,6 +21,7 @@ enum Action {
     Nav(NavAction),
     CopyAndQuit,
     DeleteSelected,
+    TogglePinSelected,
     TogglePreview,
     ScrollPreviewDown,
     ScrollPreviewUp,
@@ -121,8 +123,13 @@ fn handle_key(key: crossterm::event::KeyEvent, mode: Mode, pending: &mut Option<
         return Action::Nav(NavAction::Noop);
     }
 
-    // Normal mode: p toggles preview, Ctrl+j/k scrolls preview
+    // Normal mode: s toggles pin, p toggles preview, Ctrl+j/k scrolls preview
     if mode == Mode::Normal {
+        if let KeyCode::Char('s') = key.code {
+            if key.modifiers.is_empty() {
+                return Action::TogglePinSelected;
+            }
+        }
         if let KeyCode::Char('p') = key.code {
             if key.modifiers.is_empty() {
                 return Action::TogglePreview;
@@ -197,6 +204,13 @@ fn apply_action(app: &mut App, action: Action) {
             if let Some(entry) = app.selected_entry() {
                 let id = entry.id;
                 app.store.delete(id).ok();
+                app.refresh();
+            }
+        }
+        Action::TogglePinSelected => {
+            if let Some(entry) = app.selected_entry() {
+                let id = entry.id;
+                app.store.toggle_pin(id).ok();
                 app.refresh();
             }
         }
@@ -339,6 +353,7 @@ fn render(f: &mut Frame, app: &mut App) {
             ("g g", "Go to top"),
             ("G", "Go to bottom"),
             ("Ctrl-d / Ctrl-u", "Half-page down / up"),
+            ("s", "Toggle pin (starred)"),
             ("p", "Toggle preview pane"),
             ("Ctrl-j / Ctrl-k", "Scroll preview down / up"),
             ("/", "Search"),
@@ -382,6 +397,8 @@ fn render_list_item(entry: &ClipEntry, is_selected: bool, copied_id: Option<i64>
         .take(200)
         .collect();
     let time = entry.timestamp.format("%m/%d %H:%M");
+    let pin = if entry.pinned { "★ " } else { "  " };
+    let content_tag = tag::detect(&entry.content);
 
     let style = match (is_selected, Some(entry.id) == copied_id) {
         (true, _) => Style::default().bg(Color::DarkGray).fg(Color::White),
@@ -394,14 +411,43 @@ fn render_list_item(entry: &ClipEntry, is_selected: bool, copied_id: Option<i64>
     } else {
         Color::DarkGray
     };
+    let pin_color = if is_selected {
+        Color::Yellow
+    } else {
+        Color::DarkGray
+    };
+    let tag_color = tag_color(content_tag, is_selected);
 
     ListItem::new(Line::from(vec![
+        Span::styled(pin, style.patch(Style::default().fg(pin_color))),
         Span::styled(
-            format!(" {time} "),
+            format!("{time} "),
             style.patch(Style::default().fg(time_color)),
+        ),
+        Span::styled(
+            format!("{:<4} ", content_tag.label()),
+            style.patch(Style::default().fg(tag_color)),
         ),
         Span::styled(format!("\u{2502} {preview}"), style),
     ]))
+}
+
+fn tag_color(tag: tag::ContentTag, is_selected: bool) -> Color {
+    if is_selected {
+        match tag {
+            tag::ContentTag::Url => Color::Blue,
+            tag::ContentTag::Path => Color::Yellow,
+            tag::ContentTag::Code => Color::Green,
+            tag::ContentTag::Text => Color::White,
+        }
+    } else {
+        match tag {
+            tag::ContentTag::Url => Color::Blue,
+            tag::ContentTag::Path => Color::Yellow,
+            tag::ContentTag::Code => Color::Green,
+            tag::ContentTag::Text => Color::DarkGray,
+        }
+    }
 }
 
 fn render_preview(f: &mut Frame, app: &App, area: Rect) {
@@ -468,6 +514,7 @@ fn render_status_bar(
                     &count_str,
                     "j/k move",
                     "Enter copy",
+                    "s pin",
                     "dd delete",
                     "p preview",
                 ];
