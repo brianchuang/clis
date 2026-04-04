@@ -1,11 +1,10 @@
 use std::path::{Path, PathBuf};
 
-/// Detect the user's shell rc file based on `$SHELL`.
+/// Detect the user's shell rc file based on the given shell path (e.g. `/bin/zsh`).
 ///
 /// Returns the path to `.zshrc`, `.bashrc`, or `.bash_profile` under the
 /// given home directory. Returns `None` for unsupported shells.
-pub fn detect_shell_rc(home: &Path) -> Option<PathBuf> {
-    let shell = std::env::var("SHELL").unwrap_or_default();
+pub fn detect_shell_rc(home: &Path, shell: &str) -> Option<PathBuf> {
     if shell.ends_with("zsh") {
         Some(home.join(".zshrc"))
     } else if shell.ends_with("bash") {
@@ -45,7 +44,8 @@ pub fn append_to_rc(rc_path: &Path, content: &str) -> std::io::Result<()> {
 /// Returns a human-readable status message, or `None` if the shell is unsupported.
 pub fn ensure_shell_line(marker: &str, content: &str, already_msg: &str) -> Option<String> {
     let home = dirs::home_dir()?;
-    let rc_path = detect_shell_rc(&home)?;
+    let shell = std::env::var("SHELL").unwrap_or_default();
+    let rc_path = detect_shell_rc(&home, &shell)?;
 
     if is_configured(&rc_path, marker) {
         return Some(format!("{already_msg} {}", rc_path.display()));
@@ -64,12 +64,46 @@ mod tests {
     #[test]
     fn detect_shell_rc_zsh() {
         let tmp = tempfile::tempdir().unwrap();
-        // detect_shell_rc depends on $SHELL, so we test the path logic directly
         let home = tmp.path();
-        let rc = home.join(".zshrc");
-        // When SHELL ends with zsh, should return .zshrc
-        // We can't easily override env in tests, so test the path construction
-        assert_eq!(home.join(".zshrc"), rc);
+        assert_eq!(
+            detect_shell_rc(home, "/bin/zsh"),
+            Some(home.join(".zshrc"))
+        );
+    }
+
+    #[test]
+    fn detect_shell_rc_bash_prefers_bashrc() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path();
+        // Create .bashrc so it gets preferred
+        std::fs::write(home.join(".bashrc"), "").unwrap();
+        assert_eq!(
+            detect_shell_rc(home, "/bin/bash"),
+            Some(home.join(".bashrc"))
+        );
+    }
+
+    #[test]
+    fn detect_shell_rc_bash_falls_back_to_bash_profile() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path();
+        // No .bashrc exists, should fall back to .bash_profile
+        assert_eq!(
+            detect_shell_rc(home, "/bin/bash"),
+            Some(home.join(".bash_profile"))
+        );
+    }
+
+    #[test]
+    fn detect_shell_rc_unsupported_shell() {
+        let tmp = tempfile::tempdir().unwrap();
+        assert_eq!(detect_shell_rc(tmp.path(), "/bin/fish"), None);
+    }
+
+    #[test]
+    fn detect_shell_rc_empty_shell() {
+        let tmp = tempfile::tempdir().unwrap();
+        assert_eq!(detect_shell_rc(tmp.path(), ""), None);
     }
 
     #[test]
