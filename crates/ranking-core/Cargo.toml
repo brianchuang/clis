@@ -1,0 +1,11 @@
+[package]
+name = "ranking-core"
+version = "0.1.0"
+edition = "2021"
+description = "Composable scoring and ranking primitives for CLI tools"
+license = "MIT"
+repository = "https://github.com/brianchuang/clis"
+
+[dependencies]
+fuzzy-matcher = "0.3"
+chrono = "0.4"

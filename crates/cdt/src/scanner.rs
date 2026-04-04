@@ -1,3 +1,5 @@
+use cli_core::Result;
+
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::fs;
@@ -256,9 +258,7 @@ fn extract_json_u32(obj: &str, key: &str) -> Option<u32> {
 }
 
 /// Collect (project, name, path) tuples — cheap directory listing, no git calls.
-pub fn collect_workspace_paths(
-    root: &Path,
-) -> Result<Vec<WorkspacePath>, Box<dyn std::error::Error>> {
+pub fn collect_workspace_paths(root: &Path) -> Result<Vec<WorkspacePath>> {
     let mut entries = Vec::new();
 
     for project_entry in fs::read_dir(root)? {
@@ -285,7 +285,7 @@ pub fn collect_workspace_paths(
 
 /// Scan ~/conductor/workspaces/<project>/<workspace> two levels deep.
 /// Git calls are parallelized across workspaces using rayon.
-pub fn scan(root: &Path) -> Result<Vec<Workspace>, Box<dyn std::error::Error>> {
+pub fn scan(root: &Path) -> Result<Vec<Workspace>> {
     let entries = collect_workspace_paths(root)?;
 
     let mut workspaces: Vec<Workspace> = entries
@@ -317,7 +317,7 @@ pub fn scan(root: &Path) -> Result<Vec<Workspace>, Box<dyn std::error::Error>> {
 pub fn find_workspace<'a>(
     workspaces: &'a [Workspace],
     query: &str,
-) -> Result<&'a Workspace, String> {
+) -> std::result::Result<&'a Workspace, String> {
     // Exact match on label (project/name)
     if let Some(ws) = workspaces.iter().find(|w| w.label() == query) {
         return Ok(ws);

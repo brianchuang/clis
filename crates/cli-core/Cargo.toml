@@ -1,0 +1,13 @@
+[package]
+name = "cli-core"
+version = "0.1.0"
+edition = "2021"
+description = "Shared CLI infrastructure: shell integration, error handling, path resolution"
+license = "MIT"
+repository = "https://github.com/brianchuang/clis"
+
+[dependencies]
+dirs = "5"
+
+[dev-dependencies]
+tempfile = "3"

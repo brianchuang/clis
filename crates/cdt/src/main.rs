@@ -5,12 +5,11 @@ use cdt::scanner;
 use cdt::timeline;
 use cdt::tui;
 
+use cli_core::Result;
+
 use clap::{Parser, Subcommand};
-use std::io::Write;
 use std::path::PathBuf;
 use std::time::Instant;
-
-type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 const DEFAULT_ROOT: &str = "conductor/workspaces";
 const SHELL_EVAL_LINE: &str = r#"eval "$(cdt init-shell)""#;
@@ -95,42 +94,12 @@ enum Commands {
     ClearCache,
 }
 
-/// Detect the user's shell rc file and append the eval line if not already present.
 fn append_shell_integration() -> Option<String> {
-    let home = dirs::home_dir()?;
-    let shell = std::env::var("SHELL").unwrap_or_default();
-    let rc_path = if shell.ends_with("zsh") {
-        home.join(".zshrc")
-    } else if shell.ends_with("bash") {
-        let bashrc = home.join(".bashrc");
-        if bashrc.exists() {
-            bashrc
-        } else {
-            home.join(".bash_profile")
-        }
-    } else {
-        return None;
-    };
-
-    let contents = std::fs::read_to_string(&rc_path).unwrap_or_default();
-    if contents.contains(SHELL_EVAL_LINE) {
-        return Some(format!(
-            "Shell integration already configured in {}",
-            rc_path.display()
-        ));
-    }
-
-    let mut file = std::fs::OpenOptions::new()
-        .append(true)
-        .create(true)
-        .open(&rc_path)
-        .ok()?;
-    writeln!(
-        file,
-        "\n# cdt — Conductor workspace navigator\n{SHELL_EVAL_LINE}"
+    cli_core::shell::ensure_shell_line(
+        SHELL_EVAL_LINE,
+        &format!("# cdt — Conductor workspace navigator\n{SHELL_EVAL_LINE}"),
+        "Shell integration already configured in",
     )
-    .ok()?;
-    Some(format!("Added shell integration to {}", rc_path.display()))
 }
 
 fn resolve_root(custom: Option<PathBuf>) -> PathBuf {
@@ -142,10 +111,7 @@ fn resolve_root(custom: Option<PathBuf>) -> PathBuf {
 }
 
 fn main() {
-    if let Err(e) = run() {
-        eprintln!("Error: {e}");
-        std::process::exit(1);
-    }
+    cli_core::run_main(run);
 }
 
 /// Load workspaces: try cache first, fall back to a fresh scan, then save.
@@ -480,6 +446,7 @@ cdt() {{
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write;
 
     #[test]
     fn append_shell_integration_writes_to_rc() {
