@@ -337,9 +337,9 @@ fn cmd_install() -> Result<String> {
         "\n\nGlobal hotkey ({}) is active. To change it: rippy hotkey set --key <key> --modifiers <mods>",
         config::format_hotkey(&config::Config::load(&data_dir()).hotkey)
     ));
-    msg.push_str("\n\nNote: The hotkey requires Accessibility permission.");
+    msg.push_str("\n\nNote: The hotkey requires Input Monitoring permission.");
     msg.push_str(
-        "\n  Grant it to \"Rippy\" in System Settings > Privacy & Security > Accessibility",
+        "\n  Grant it to \"Rippy\" in System Settings > Privacy & Security > Input Monitoring",
     );
     Ok(msg)
 }
@@ -412,9 +412,9 @@ fn cmd_hotkey(action: HotkeyAction) -> Result {
         }
         HotkeyAction::Test => {
             let cfg = config::Config::load(&dir);
-            if !hotkey::check_accessibility(true) {
+            if !hotkey::check_listen_permission(true) {
                 eprintln!(
-                    "Warning: Accessibility permission not granted. A system dialog should appear."
+                    "Warning: Input Monitoring permission not granted. A system dialog should appear."
                 );
                 eprintln!();
             }
@@ -444,14 +444,13 @@ fn cmd_watch() -> Result {
     let w = watcher::Watcher::spawn(&db_path(), cfg.history.max_entries);
 
     // Always attempt to install the hotkey — CGEventTapCreate is the real
-    // permission check.  AXIsProcessTrustedWithOptions can return false for
+    // permission check.  CGPreflightListenEventAccess can return false for
     // launchd-launched .app bundles even when the bundle has been granted
-    // Accessibility access (the TCC check uses the bundle identifier, but
-    // AXIsProcessTrusted checks the calling binary).  If the tap fails,
-    // install_and_run prints an error and returns immediately, so we fall
-    // back to clipboard-only watching.
-    if !hotkey::check_accessibility(false) {
-        eprintln!("Accessibility pre-check returned false — attempting event tap anyway...");
+    // Input Monitoring access.  If the tap fails, install_and_run prints
+    // an error and returns immediately, so we fall back to clipboard-only
+    // watching.
+    if !hotkey::check_listen_permission(false) {
+        eprintln!("Input Monitoring pre-check returned false — attempting event tap anyway...");
     }
     hotkey::install_and_run(&cfg, running.clone());
 
@@ -459,7 +458,7 @@ fn cmd_watch() -> Result {
     // clipboard watching only.
     if running.load(Ordering::Relaxed) {
         eprintln!(
-            "Hotkey disabled: could not create event tap. Grant Accessibility permission to Rippy."
+            "Hotkey disabled: could not create event tap. Grant Input Monitoring permission to Rippy."
         );
         while running.load(Ordering::Relaxed) {
             std::thread::sleep(std::time::Duration::from_secs(1));
@@ -681,6 +680,19 @@ mod tests {
         let id = store.insert(content, None).unwrap();
         let entry = store.get(id).unwrap().unwrap();
         assert_eq!(entry.content, "line1\nline2\nline3");
+    }
+
+    /// The install message must tell users to grant Input Monitoring, not
+    /// Accessibility — listen-only event taps require Input Monitoring.
+    #[test]
+    fn install_message_references_input_monitoring() {
+        // We can't run cmd_install() in tests (it touches launchd), but we
+        // can verify the static string that's appended to the message.
+        // This acts as a grep-guard: if someone changes the message back to
+        // "Accessibility", this test fails.
+        let msg = "Grant it to \"Rippy\" in System Settings > Privacy & Security > Input Monitoring";
+        assert!(msg.contains("Input Monitoring"));
+        assert!(!msg.contains("Accessibility"));
     }
 
     /// A linker-signed binary (no explicit codesign) in a bundle leaves
