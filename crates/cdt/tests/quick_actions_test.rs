@@ -44,7 +44,10 @@ fn find_workspace_ambiguous() {
         ws("proj-b", "london", Some(false), false),
     ];
     let err = find_workspace(&workspaces, "london").unwrap_err();
-    assert!(err.contains("ambiguous"), "expected ambiguous error, got: {err}");
+    assert!(
+        err.contains("ambiguous"),
+        "expected ambiguous error, got: {err}"
+    );
     assert!(err.contains("proj-a/london"));
     assert!(err.contains("proj-b/london"));
 }
@@ -53,7 +56,10 @@ fn find_workspace_ambiguous() {
 fn find_workspace_not_found() {
     let workspaces = vec![ws("proj", "london", Some(false), false)];
     let err = find_workspace(&workspaces, "tokyo").unwrap_err();
-    assert!(err.contains("no workspace"), "expected not-found error, got: {err}");
+    assert!(
+        err.contains("no workspace"),
+        "expected not-found error, got: {err}"
+    );
 }
 
 #[test]

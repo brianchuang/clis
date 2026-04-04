@@ -61,7 +61,8 @@ pub fn load(root: &Path) -> Option<Vec<Workspace>> {
     // from the cache, invalidate. This catches newly created or deleted
     // workspaces without running any git commands.
     if let Ok(current_paths) = crate::scanner::collect_workspace_paths(root) {
-        let cached_set: HashSet<PathBuf> = envelope.workspaces.iter().map(|w| w.path.clone()).collect();
+        let cached_set: HashSet<PathBuf> =
+            envelope.workspaces.iter().map(|w| w.path.clone()).collect();
         let disk_set: HashSet<PathBuf> = current_paths.iter().map(|(_, _, p)| p.clone()).collect();
         if cached_set != disk_set {
             return None;

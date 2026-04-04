@@ -160,7 +160,10 @@ pub fn install_and_run(cfg: &Config, running: Arc<AtomicBool>) {
     let keycode = match config::keycode_for(&cfg.hotkey.key) {
         Some(k) => k,
         None => {
-            eprintln!("Unknown hotkey key: '{}'. Run `rippy hotkey show` for valid keys.", cfg.hotkey.key);
+            eprintln!(
+                "Unknown hotkey key: '{}'. Run `rippy hotkey show` for valid keys.",
+                cfg.hotkey.key
+            );
             return;
         }
     };
@@ -204,7 +207,10 @@ pub fn install_and_run(cfg: &Config, running: Arc<AtomicBool>) {
         let source = CFMachPortCreateRunLoopSource(std::ptr::null(), tap, 0);
         CFRunLoopAddSource(run_loop, source, kCFRunLoopCommonModes);
 
-        eprintln!("Hotkey {} registered. Listening...", config::format_hotkey(&cfg.hotkey));
+        eprintln!(
+            "Hotkey {} registered. Listening...",
+            config::format_hotkey(&cfg.hotkey)
+        );
 
         // Poll the running flag on a background thread; stop the run loop when signaled.
         let running_clone = running.clone();

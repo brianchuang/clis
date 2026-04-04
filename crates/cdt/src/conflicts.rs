@@ -51,7 +51,10 @@ pub fn detect_conflicts(changes: &[(String, Vec<String>)]) -> Vec<FileConflict> 
 
     for (label, files) in changes {
         for file in files {
-            file_map.entry(file.as_str()).or_default().push(label.as_str());
+            file_map
+                .entry(file.as_str())
+                .or_default()
+                .push(label.as_str());
         }
     }
 
@@ -113,9 +116,18 @@ mod tests {
     #[test]
     fn detect_conflicts_finds_overlapping_files() {
         let changes = vec![
-            ("proj/london".to_string(), vec!["src/auth.rs".to_string(), "src/main.rs".to_string()]),
-            ("proj/tokyo".to_string(), vec!["src/auth.rs".to_string(), "src/db.rs".to_string()]),
-            ("proj/berlin".to_string(), vec!["src/db.rs".to_string(), "README.md".to_string()]),
+            (
+                "proj/london".to_string(),
+                vec!["src/auth.rs".to_string(), "src/main.rs".to_string()],
+            ),
+            (
+                "proj/tokyo".to_string(),
+                vec!["src/auth.rs".to_string(), "src/db.rs".to_string()],
+            ),
+            (
+                "proj/berlin".to_string(),
+                vec!["src/db.rs".to_string(), "README.md".to_string()],
+            ),
         ];
 
         let conflicts = detect_conflicts(&changes);
@@ -153,9 +165,10 @@ mod tests {
 
     #[test]
     fn detect_conflicts_single_workspace() {
-        let changes = vec![
-            ("proj/london".to_string(), vec!["src/auth.rs".to_string(), "src/main.rs".to_string()]),
-        ];
+        let changes = vec![(
+            "proj/london".to_string(),
+            vec!["src/auth.rs".to_string(), "src/main.rs".to_string()],
+        )];
 
         let conflicts = detect_conflicts(&changes);
         assert!(conflicts.is_empty());
@@ -177,8 +190,14 @@ mod tests {
     #[test]
     fn detect_conflicts_sorted_by_severity_then_name() {
         let changes = vec![
-            ("proj/a".to_string(), vec!["z.rs".to_string(), "a.rs".to_string()]),
-            ("proj/b".to_string(), vec!["z.rs".to_string(), "a.rs".to_string()]),
+            (
+                "proj/a".to_string(),
+                vec!["z.rs".to_string(), "a.rs".to_string()],
+            ),
+            (
+                "proj/b".to_string(),
+                vec!["z.rs".to_string(), "a.rs".to_string()],
+            ),
             ("proj/c".to_string(), vec!["z.rs".to_string()]),
         ];
 
@@ -193,12 +212,10 @@ mod tests {
 
     #[test]
     fn format_conflicts_output() {
-        let conflicts = vec![
-            FileConflict {
-                file: "src/auth.rs".to_string(),
-                workspaces: vec!["proj/london".to_string(), "proj/tokyo".to_string()],
-            },
-        ];
+        let conflicts = vec![FileConflict {
+            file: "src/auth.rs".to_string(),
+            workspaces: vec!["proj/london".to_string(), "proj/tokyo".to_string()],
+        }];
 
         let output = format_conflicts(&conflicts);
         assert!(output.contains("src/auth.rs"));
