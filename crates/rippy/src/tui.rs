@@ -1,6 +1,7 @@
 use crate::clipboard;
 use crate::config::Config;
 use crate::db::{ClipEntry, Store};
+use crate::highlight;
 use crate::tag;
 use crate::watcher::Watcher;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
@@ -464,24 +465,30 @@ fn render_preview(f: &mut Frame, app: &App, area: Rect) {
     let inner = block.inner(area);
     f.render_widget(block, area);
 
-    let content = match app.selected_entry() {
-        Some(entry) => &entry.content,
+    let entry = match app.selected_entry() {
+        Some(e) => e,
         None => return,
     };
 
     let preview_height = inner.height as usize;
-    let lines: Vec<Line> = content
-        .lines()
-        .enumerate()
-        .map(|(i, line)| {
-            let line_num = Span::styled(
-                format!("{:>4} ", i + 1),
-                Style::default().fg(Color::DarkGray),
-            );
-            let text = Span::raw(line.to_string());
-            Line::from(vec![line_num, text])
-        })
-        .collect();
+    let is_code = tag::detect(&entry.content) == tag::ContentTag::Code;
+    let lines: Vec<Line> = if is_code {
+        highlight::highlight_content(&entry.content)
+    } else {
+        entry
+            .content
+            .lines()
+            .enumerate()
+            .map(|(i, line)| {
+                let line_num = Span::styled(
+                    format!("{:>4} ", i + 1),
+                    Style::default().fg(Color::DarkGray),
+                );
+                let text = Span::raw(line.to_string());
+                Line::from(vec![line_num, text])
+            })
+            .collect()
+    };
 
     // Clamp preview scroll to content bounds
     let max_scroll = lines.len().saturating_sub(preview_height);

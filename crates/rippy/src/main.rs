@@ -1,6 +1,7 @@
 mod clipboard;
 mod config;
 mod db;
+mod highlight;
 mod hotkey;
 mod mcp;
 pub(crate) mod tag;
