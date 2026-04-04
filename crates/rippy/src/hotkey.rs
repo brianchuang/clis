@@ -12,8 +12,6 @@ type CFRunLoopRef = *mut c_void;
 type CFAllocatorRef = *const c_void;
 type CFIndex = isize;
 type CFStringRef = *const c_void;
-type CFDictionaryRef = *const c_void;
-type CFBooleanRef = *const c_void;
 
 // Core Graphics types
 type CGEventRef = *mut c_void;
@@ -48,31 +46,15 @@ extern "C" {
     fn CGEventGetIntegerValueField(event: CGEventRef, field: u32) -> i64;
     fn CGEventGetFlags(event: CGEventRef) -> u64;
     fn CGEventTapEnable(tap: CFMachPortRef, enable: bool);
-}
-
-#[link(name = "ApplicationServices", kind = "framework")]
-extern "C" {
-    fn AXIsProcessTrustedWithOptions(options: CFDictionaryRef) -> bool;
-}
-
-// kAXTrustedCheckOptionPrompt key from HIServices
-extern "C" {
-    static kAXTrustedCheckOptionPrompt: CFStringRef;
+    // Input Monitoring permission APIs (macOS 10.15+).
+    // Listen-only event taps require Input Monitoring, NOT Accessibility.
+    fn CGPreflightListenEventAccess() -> bool;
+    fn CGRequestListenEventAccess() -> bool;
 }
 
 #[link(name = "CoreFoundation", kind = "framework")]
 extern "C" {
     static kCFRunLoopCommonModes: CFStringRef;
-    static kCFBooleanTrue: CFBooleanRef;
-    fn CFDictionaryCreate(
-        allocator: CFAllocatorRef,
-        keys: *const *const c_void,
-        values: *const *const c_void,
-        num_values: CFIndex,
-        key_callbacks: *const c_void,
-        value_callbacks: *const c_void,
-    ) -> CFDictionaryRef;
-    fn CFRelease(cf: *const c_void);
     fn CFMachPortCreateRunLoopSource(
         allocator: CFAllocatorRef,
         port: CFMachPortRef,
@@ -84,34 +66,23 @@ extern "C" {
     fn CFRunLoopStop(rl: CFRunLoopRef);
 }
 
-/// Check if the process has Accessibility permissions.
+/// Check if the process has Input Monitoring permission (required for
+/// listen-only event taps like our global hotkey).
 ///
-/// We use `AXIsProcessTrustedWithOptions` instead of the simpler `AXIsProcessTrusted`
-/// because when called with `kAXTrustedCheckOptionPrompt: true`, macOS shows its
-/// native permission dialog and adds the calling binary to the Accessibility list.
-/// This only works when the binary lives inside a .app bundle (see `create_app_bundle`
-/// in main.rs) — raw binaries are silently ignored by the prompt.
-pub fn check_accessibility(prompt: bool) -> bool {
+/// Uses `CGPreflightListenEventAccess` (no prompt) or `CGRequestListenEventAccess`
+/// (shows the native Input Monitoring prompt). These are the correct APIs for
+/// `kCGEventTapOptionListenOnly` — `AXIsProcessTrustedWithOptions` checks
+/// *Accessibility*, which is a different TCC category.
+pub fn check_listen_permission(prompt: bool) -> bool {
     unsafe {
-        if !prompt {
-            let opts = std::ptr::null();
-            return AXIsProcessTrustedWithOptions(opts);
+        if prompt {
+            CGRequestListenEventAccess()
+        } else {
+            CGPreflightListenEventAccess()
         }
-        let keys = [kAXTrustedCheckOptionPrompt];
-        let values = [kCFBooleanTrue];
-        let dict = CFDictionaryCreate(
-            std::ptr::null(),
-            keys.as_ptr(),
-            values.as_ptr(),
-            1,
-            std::ptr::null(),
-            std::ptr::null(),
-        );
-        let trusted = AXIsProcessTrustedWithOptions(dict);
-        CFRelease(dict);
-        trusted
     }
 }
+
 
 struct HotkeyContext {
     keycode: u16,
@@ -235,6 +206,15 @@ mod tests {
         assert_eq!(MODIFIER_FILTER & (1 << 16), 0);
         assert_eq!(MODIFIER_FILTER & (1 << 21), 0);
     }
+
+    /// check_listen_permission must exist and be callable.
+    /// We can't assert the return value in CI (no TCC context), but we can
+    /// verify the function compiles and doesn't panic.
+    #[test]
+    fn check_listen_permission_is_callable() {
+        // prompt=false should never show a dialog, safe in CI
+        let _result: bool = check_listen_permission(false);
+    }
 }
 
 /// Install the global hotkey and run the event loop.
@@ -274,8 +254,8 @@ pub fn install_and_run(cfg: &Config, running: Arc<AtomicBool>) {
         );
 
         if tap.is_null() {
-            eprintln!("Failed to create event tap. Requesting Accessibility permission...");
-            check_accessibility(true);
+            eprintln!("Failed to create event tap. Requesting Input Monitoring permission...");
+            check_listen_permission(true);
             // Clean up
             let _ = Box::from_raw(ctx_ptr);
             return;
