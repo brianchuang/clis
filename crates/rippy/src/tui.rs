@@ -11,6 +11,7 @@ use crossterm::terminal::{
 use crossterm::ExecutableCommand;
 use ratatui::prelude::*;
 use ratatui::widgets::*;
+use std::collections::HashSet;
 use std::io::stdout;
 use std::path::Path;
 use std::time::Instant;
@@ -24,6 +25,7 @@ enum Action {
     DeleteSelected,
     TogglePinSelected,
     TogglePreview,
+    ToggleMultiSelect,
     ScrollPreviewDown,
     ScrollPreviewUp,
 }
@@ -45,6 +47,7 @@ struct App {
     show_help: bool,
     show_preview: bool,
     preview_scroll: usize,
+    multi_selected: HashSet<i64>,
 }
 
 impl App {
@@ -66,6 +69,7 @@ impl App {
             show_help: false,
             show_preview: true,
             preview_scroll: 0,
+            multi_selected: HashSet::new(),
         }
     }
 
@@ -90,6 +94,7 @@ impl App {
         self.filtered =
             tui_core::compute_filtered(&self.entries, &self.query, |e| e.content.clone());
         self.clamp_selection();
+        self.multi_selected.clear();
     }
 
     fn reset_selection(&mut self) {
@@ -135,6 +140,9 @@ fn handle_key(key: crossterm::event::KeyEvent, mode: Mode, pending: &mut Option<
             if key.modifiers.is_empty() {
                 return Action::TogglePreview;
             }
+        }
+        if key.code == KeyCode::Char(' ') && key.modifiers.is_empty() {
+            return Action::ToggleMultiSelect;
         }
         if key.modifiers == crossterm::event::KeyModifiers::CONTROL {
             match key.code {
@@ -195,9 +203,22 @@ fn apply_action(app: &mut App, action: Action) {
             }
         },
         Action::CopyAndQuit => {
-            if let Some(entry) = app.selected_entry() {
-                clipboard::set_clipboard(&entry.content);
-                app.copied_id = Some(entry.id);
+            if app.multi_selected.is_empty() {
+                // Single copy: just the current entry
+                if let Some(entry) = app.selected_entry() {
+                    clipboard::set_clipboard(&entry.content);
+                    app.copied_id = Some(entry.id);
+                }
+            } else {
+                // Batch copy: concatenate selected entries in list order
+                let combined: Vec<&str> = app
+                    .filtered
+                    .iter()
+                    .map(|&i| &app.entries[i])
+                    .filter(|e| app.multi_selected.contains(&e.id))
+                    .map(|e| e.content.as_str())
+                    .collect();
+                clipboard::set_clipboard(&combined.join("\n"));
             }
             app.should_quit = true;
         }
@@ -213,6 +234,14 @@ fn apply_action(app: &mut App, action: Action) {
                 let id = entry.id;
                 app.store.toggle_pin(id).ok();
                 app.refresh();
+            }
+        }
+        Action::ToggleMultiSelect => {
+            if let Some(entry) = app.selected_entry() {
+                let id = entry.id;
+                if !app.multi_selected.remove(&id) {
+                    app.multi_selected.insert(id);
+                }
             }
         }
         Action::TogglePreview => {
@@ -336,6 +365,7 @@ fn render(f: &mut Frame, app: &mut App) {
             app.scroll_offset,
             list_height,
             app.copied_id,
+            &app.multi_selected,
         ),
         list_area,
     );
@@ -347,6 +377,7 @@ fn render(f: &mut Frame, app: &mut App) {
             app.copied_id,
             app.mode,
             app.show_preview,
+            app.multi_selected.len(),
         ),
         chunks[2],
     );
@@ -358,6 +389,7 @@ fn render(f: &mut Frame, app: &mut App) {
             ("g g", "Go to top"),
             ("G", "Go to bottom"),
             ("Ctrl-d / Ctrl-u", "Half-page down / up"),
+            ("Space", "Toggle multi-select"),
             ("s", "Toggle pin (starred)"),
             ("p", "Toggle preview pane"),
             ("Ctrl-j / Ctrl-k", "Scroll preview down / up"),
@@ -380,19 +412,28 @@ fn render_clip_list<'a>(
     scroll_offset: usize,
     list_height: usize,
     copied_id: Option<i64>,
+    multi_selected: &HashSet<i64>,
 ) -> List<'a> {
     let items: Vec<ListItem> = filtered
         .iter()
         .enumerate()
         .skip(scroll_offset)
         .take(list_height)
-        .map(|(i, &entry_idx)| render_list_item(&entries[entry_idx], i == selected, copied_id))
+        .map(|(i, &entry_idx)| {
+            let is_multi = multi_selected.contains(&entries[entry_idx].id);
+            render_list_item(&entries[entry_idx], i == selected, copied_id, is_multi)
+        })
         .collect();
 
     List::new(items).block(Block::default().borders(Borders::NONE))
 }
 
-fn render_list_item(entry: &ClipEntry, is_selected: bool, copied_id: Option<i64>) -> ListItem<'_> {
+fn render_list_item(
+    entry: &ClipEntry,
+    is_selected: bool,
+    copied_id: Option<i64>,
+    is_multi_selected: bool,
+) -> ListItem<'_> {
     let preview: String = entry
         .content
         .lines()
@@ -405,10 +446,18 @@ fn render_list_item(entry: &ClipEntry, is_selected: bool, copied_id: Option<i64>
     let pin = if entry.pinned { "★ " } else { "  " };
     let content_tag = tag::detect(&entry.content);
 
-    let style = match (is_selected, Some(entry.id) == copied_id) {
-        (true, _) => Style::default().bg(Color::DarkGray).fg(Color::White),
-        (_, true) => Style::default().fg(Color::Green),
+    let style = match (is_selected, Some(entry.id) == copied_id, is_multi_selected) {
+        (true, _, _) => Style::default().bg(Color::DarkGray).fg(Color::White),
+        (_, true, _) => Style::default().fg(Color::Green),
+        (_, _, true) => Style::default().fg(Color::Cyan),
         _ => Style::default(),
+    };
+
+    let check = if is_multi_selected { "● " } else { "  " };
+    let check_color = if is_multi_selected {
+        Color::Cyan
+    } else {
+        Color::DarkGray
     };
 
     let time_color = if is_selected {
@@ -424,6 +473,7 @@ fn render_list_item(entry: &ClipEntry, is_selected: bool, copied_id: Option<i64>
     let tag_color = tag_color(content_tag, is_selected);
 
     ListItem::new(Line::from(vec![
+        Span::styled(check, style.patch(Style::default().fg(check_color))),
         Span::styled(pin, style.patch(Style::default().fg(pin_color))),
         Span::styled(
             format!("{time} "),
@@ -511,6 +561,7 @@ fn render_status_bar(
     copied_id: Option<i64>,
     mode: Mode,
     show_preview: bool,
+    multi_count: usize,
 ) -> Paragraph<'static> {
     let (text, style) = if copied_id.is_some() {
         (
@@ -520,10 +571,15 @@ fn render_status_bar(
     } else {
         let help = match mode {
             Mode::Normal => {
-                let count_str = format!(" {count}/{total}");
+                let count_str = if multi_count > 0 {
+                    format!(" {count}/{total} ({multi_count} selected)")
+                } else {
+                    format!(" {count}/{total}")
+                };
                 let mut parts: Vec<&str> = vec![
                     &count_str,
                     "j/k move",
+                    "Space select",
                     "Enter copy",
                     "s pin",
                     "dd delete",
@@ -541,4 +597,66 @@ fn render_status_bar(
     };
 
     Paragraph::new(text).style(style)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    fn test_app(contents: &[&str]) -> App {
+        let store = Store::open(Path::new(":memory:")).unwrap();
+        for c in contents {
+            store.insert(c, None).unwrap();
+        }
+        App::new(store)
+    }
+
+    #[test]
+    fn toggle_multi_select_adds_and_removes() {
+        let mut app = test_app(&["aaa", "bbb", "ccc"]);
+        assert!(app.multi_selected.is_empty());
+
+        // Select first entry
+        apply_action(&mut app, Action::ToggleMultiSelect);
+        assert_eq!(app.multi_selected.len(), 1);
+        let first_id = app.selected_entry().unwrap().id;
+        assert!(app.multi_selected.contains(&first_id));
+
+        // Toggle again to deselect
+        apply_action(&mut app, Action::ToggleMultiSelect);
+        assert!(app.multi_selected.is_empty());
+    }
+
+    #[test]
+    fn multi_select_multiple_entries() {
+        let mut app = test_app(&["aaa", "bbb", "ccc"]);
+
+        // Select first
+        apply_action(&mut app, Action::ToggleMultiSelect);
+        // Move down and select second
+        apply_action(&mut app, Action::Nav(NavAction::MoveDown));
+        apply_action(&mut app, Action::ToggleMultiSelect);
+
+        assert_eq!(app.multi_selected.len(), 2);
+    }
+
+    #[test]
+    fn refilter_clears_multi_select() {
+        let mut app = test_app(&["aaa", "bbb", "ccc"]);
+        apply_action(&mut app, Action::ToggleMultiSelect);
+        assert_eq!(app.multi_selected.len(), 1);
+
+        // Typing a character triggers refilter, which clears selections
+        apply_action(&mut app, Action::Nav(NavAction::EnterInsert));
+        apply_action(&mut app, Action::Nav(NavAction::TypeChar('a')));
+        assert!(app.multi_selected.is_empty());
+    }
+
+    #[test]
+    fn multi_select_empty_list_is_noop() {
+        let mut app = test_app(&[]);
+        apply_action(&mut app, Action::ToggleMultiSelect);
+        assert!(app.multi_selected.is_empty());
+    }
 }

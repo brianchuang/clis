@@ -21,7 +21,7 @@ Ship what exists with better ergonomics.
 Make the picker more powerful without losing simplicity.
 
 - [x] Preview pane — show full content of selected entry (scrollable)
-- [ ] Syntax highlighting for code snippets in preview
+- [x] Syntax highlighting for code snippets in preview
 - [x] Entry pinning — star entries so they never expire or get pruned
 - [x] Auto-detected content tags (url, code, path, text) shown in list view
 
@@ -32,7 +32,7 @@ Unix philosophy: composable, scriptable, searchable.
 - [x] `yy get ID` — print entry to stdout for piping
 - [x] `echo "foo" | yy save` — capture stdin as a clipboard entry
 - [ ] Semantic search via local embeddings (see below)
-- [ ] Multi-select — pick several entries and paste as a batch
+- [x] Multi-select — pick several entries and paste as a batch
 - [ ] Snippets mode — persistent saved clips separate from ephemeral history
 
 ### Semantic Search Design
