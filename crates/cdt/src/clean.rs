@@ -179,9 +179,7 @@ mod tests {
             path: PathBuf::from(format!("/ws/proj/{name}")),
             merged,
             branch: Some(format!("feat-{name}")),
-            last_commit: age_days.map(|d| {
-                SystemTime::now() - Duration::from_secs(d * 86400)
-            }),
+            last_commit: age_days.map(|d| SystemTime::now() - Duration::from_secs(d * 86400)),
             dirty,
             pr: None,
         }
@@ -205,7 +203,7 @@ mod tests {
     #[test]
     fn find_stale_uses_threshold() {
         let workspaces = vec![
-            ws("fresh", Some(false), Some(1), false),   // 1 day old
+            ws("fresh", Some(false), Some(1), false),    // 1 day old
             ws("old", Some(false), Some(10), false),     // 10 days old
             ws("ancient", Some(false), Some(30), false), // 30 days old
             ws("nocommit", Some(false), None, false),    // no last_commit
@@ -227,7 +225,10 @@ mod tests {
         let candidates = find_candidates(&workspaces, true, Some(Duration::from_secs(7 * 86400)));
         assert_eq!(candidates.len(), 3);
         // "both" should appear once with Merged reason (takes priority)
-        let both = candidates.iter().find(|c| c.workspace.name == "both").unwrap();
+        let both = candidates
+            .iter()
+            .find(|c| c.workspace.name == "both")
+            .unwrap();
         assert_eq!(both.reason, CleanReason::Merged);
     }
 
@@ -263,7 +264,10 @@ mod tests {
     #[test]
     fn format_candidate_merged() {
         let w = ws("city", Some(true), Some(1), false);
-        let c = CleanCandidate { workspace: &w, reason: CleanReason::Merged };
+        let c = CleanCandidate {
+            workspace: &w,
+            reason: CleanReason::Merged,
+        };
         let line = format_candidate(&c);
         assert!(line.contains("proj/city"));
         assert!(line.contains("merged"));
@@ -284,10 +288,19 @@ mod tests {
 
     #[test]
     fn parse_duration_valid() {
-        assert_eq!(parse_duration("7d").unwrap(), Duration::from_secs(7 * 86400));
-        assert_eq!(parse_duration("24h").unwrap(), Duration::from_secs(24 * 3600));
+        assert_eq!(
+            parse_duration("7d").unwrap(),
+            Duration::from_secs(7 * 86400)
+        );
+        assert_eq!(
+            parse_duration("24h").unwrap(),
+            Duration::from_secs(24 * 3600)
+        );
         assert_eq!(parse_duration("30m").unwrap(), Duration::from_secs(30 * 60));
-        assert_eq!(parse_duration("2w").unwrap(), Duration::from_secs(14 * 86400));
+        assert_eq!(
+            parse_duration("2w").unwrap(),
+            Duration::from_secs(14 * 86400)
+        );
         assert_eq!(parse_duration("60s").unwrap(), Duration::from_secs(60));
     }
 

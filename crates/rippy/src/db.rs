@@ -30,7 +30,11 @@ fn row_to_entry(row: &Row) -> Result<ClipEntry> {
     })
 }
 
-fn query_entries(conn: &Connection, sql: &str, params: &[&dyn rusqlite::types::ToSql]) -> Result<Vec<ClipEntry>> {
+fn query_entries(
+    conn: &Connection,
+    sql: &str,
+    params: &[&dyn rusqlite::types::ToSql],
+) -> Result<Vec<ClipEntry>> {
     conn.prepare(sql)?
         .query_map(params, row_to_entry)?
         .collect()
@@ -73,13 +77,21 @@ impl Store {
         let hash = content_hash(content);
         let now = Local::now().timestamp();
 
-        let existing: Option<i64> = self.conn
-            .query_row("SELECT id FROM clips WHERE hash = ?1 LIMIT 1", params![hash], |row| row.get(0))
+        let existing: Option<i64> = self
+            .conn
+            .query_row(
+                "SELECT id FROM clips WHERE hash = ?1 LIMIT 1",
+                params![hash],
+                |row| row.get(0),
+            )
             .ok();
 
         match existing {
             Some(id) => {
-                self.conn.execute("UPDATE clips SET timestamp = ?1 WHERE id = ?2", params![now, id])?;
+                self.conn.execute(
+                    "UPDATE clips SET timestamp = ?1 WHERE id = ?2",
+                    params![now, id],
+                )?;
                 Ok(id)
             }
             None => {
@@ -126,9 +138,11 @@ impl Store {
         )?;
         // Return the new pinned state
         self.conn
-            .query_row("SELECT pinned FROM clips WHERE id = ?1", params![id], |row| {
-                row.get::<_, i64>(0)
-            })
+            .query_row(
+                "SELECT pinned FROM clips WHERE id = ?1",
+                params![id],
+                |row| row.get::<_, i64>(0),
+            )
             .map(|v| v != 0)
     }
 
@@ -139,7 +153,9 @@ impl Store {
     }
 
     pub fn clear(&self) -> Result<usize> {
-        let count: i64 = self.conn.query_row("SELECT COUNT(*) FROM clips", [], |row| row.get(0))?;
+        let count: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM clips", [], |row| row.get(0))?;
         self.conn.execute("DELETE FROM clips", [])?;
         Ok(count as usize)
     }
@@ -194,7 +210,10 @@ mod tests {
         assert_eq!(json["id"], 1);
         assert_eq!(json["content"], "hello world");
         assert_eq!(json["app_name"], "Terminal");
-        assert!(json.get("hash").is_none(), "hash should be excluded from JSON");
+        assert!(
+            json.get("hash").is_none(),
+            "hash should be excluded from JSON"
+        );
         assert!(json["timestamp"].as_str().unwrap().contains("2023-11-14"));
     }
 
@@ -273,10 +292,13 @@ mod tests {
         for i in 0..5 {
             store.insert(&format!("entry {i}"), None).unwrap();
             // Force distinct timestamps by bumping the timestamp column directly
-            store.conn.execute(
-                "UPDATE clips SET timestamp = ?1 WHERE content = ?2",
-                params![1000 + i, format!("entry {i}")],
-            ).unwrap();
+            store
+                .conn
+                .execute(
+                    "UPDATE clips SET timestamp = ?1 WHERE content = ?2",
+                    params![1000 + i, format!("entry {i}")],
+                )
+                .unwrap();
         }
         assert_eq!(store.count().unwrap(), 5);
 
@@ -343,16 +365,31 @@ mod tests {
     fn pinned_entries_appear_first_in_recent() {
         let store = temp_store();
         store.insert("old", None).unwrap();
-        store.conn.execute("UPDATE clips SET timestamp = 1000 WHERE content = 'old'", []).unwrap();
+        store
+            .conn
+            .execute(
+                "UPDATE clips SET timestamp = 1000 WHERE content = 'old'",
+                [],
+            )
+            .unwrap();
 
         let new_id = store.insert("new", None).unwrap();
-        store.conn.execute("UPDATE clips SET timestamp = 2000 WHERE content = 'new'", []).unwrap();
+        store
+            .conn
+            .execute(
+                "UPDATE clips SET timestamp = 2000 WHERE content = 'new'",
+                [],
+            )
+            .unwrap();
 
         let old_id = store.recent(10).unwrap().last().unwrap().id;
         store.toggle_pin(old_id).unwrap();
 
         let entries = store.recent(10).unwrap();
-        assert_eq!(entries[0].content, "old", "pinned entry should appear first");
+        assert_eq!(
+            entries[0].content, "old",
+            "pinned entry should appear first"
+        );
         assert!(entries[0].pinned);
         assert_eq!(entries[1].content, "new");
         assert!(!entries[1].pinned);
@@ -363,10 +400,13 @@ mod tests {
         let store = temp_store();
         for i in 0..5 {
             store.insert(&format!("entry {i}"), None).unwrap();
-            store.conn.execute(
-                "UPDATE clips SET timestamp = ?1 WHERE content = ?2",
-                params![1000 + i, format!("entry {i}")],
-            ).unwrap();
+            store
+                .conn
+                .execute(
+                    "UPDATE clips SET timestamp = ?1 WHERE content = ?2",
+                    params![1000 + i, format!("entry {i}")],
+                )
+                .unwrap();
         }
 
         // Pin the oldest entry (entry 0)
@@ -380,7 +420,10 @@ mod tests {
 
         let remaining = store.recent(10).unwrap();
         let contents: Vec<&str> = remaining.iter().map(|e| e.content.as_str()).collect();
-        assert!(contents.contains(&"entry 0"), "pinned entry should survive prune");
+        assert!(
+            contents.contains(&"entry 0"),
+            "pinned entry should survive prune"
+        );
         assert!(contents.contains(&"entry 3"));
         assert!(contents.contains(&"entry 4"));
     }

@@ -128,7 +128,11 @@ fn load_workspaces(
     let workspaces = scanner::scan(root)?;
 
     if time {
-        eprintln!("[cdt] fresh scan — {} workspaces in {:.1?}", workspaces.len(), t0.elapsed());
+        eprintln!(
+            "[cdt] fresh scan — {} workspaces in {:.1?}",
+            workspaces.len(),
+            t0.elapsed()
+        );
     }
 
     // Persist for next time
@@ -185,7 +189,12 @@ fn run() -> Result {
                 }
             }
         }
-        Some(Commands::Clean { merged, stale, dry_run, yes }) => {
+        Some(Commands::Clean {
+            merged,
+            stale,
+            dry_run,
+            yes,
+        }) => {
             let stale_duration = stale
                 .map(|s| clean::parse_duration(&s))
                 .transpose()
@@ -340,9 +349,7 @@ fn run() -> Result {
                     Ok(s) if s.success() => {}
                     _ => {
                         eprintln!("No PR found, opening workspace directory...");
-                        std::process::Command::new("open")
-                            .arg(&ws.path)
-                            .status()?;
+                        std::process::Command::new("open").arg(&ws.path).status()?;
                     }
                 }
             }

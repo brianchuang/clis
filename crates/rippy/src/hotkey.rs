@@ -126,7 +126,12 @@ pub const MODIFIER_FILTER: u64 = (1 << 20) | (1 << 17) | (1 << 18) | (1 << 19);
 
 /// Pure function: does the incoming key event match the configured hotkey?
 /// `raw_flags` are the raw CGEventFlags — this function applies MODIFIER_FILTER internally.
-pub fn matches_hotkey(keycode: u16, raw_flags: u64, expected_keycode: u16, expected_modifiers: u64) -> bool {
+pub fn matches_hotkey(
+    keycode: u16,
+    raw_flags: u64,
+    expected_keycode: u16,
+    expected_modifiers: u64,
+) -> bool {
     keycode == expected_keycode && (raw_flags & MODIFIER_FILTER) == expected_modifiers
 }
 
@@ -206,11 +211,21 @@ mod tests {
 
         // Simulated event: macOS sends raw flags with extra bits
         let raw_flags = expected_mask | (1 << 24);
-        assert!(matches_hotkey(expected_keycode, raw_flags, expected_keycode, expected_mask));
+        assert!(matches_hotkey(
+            expected_keycode,
+            raw_flags,
+            expected_keycode,
+            expected_mask
+        ));
 
         // Wrong key pressed
         let wrong_keycode = config::keycode_for("c").unwrap();
-        assert!(!matches_hotkey(wrong_keycode, raw_flags, expected_keycode, expected_mask));
+        assert!(!matches_hotkey(
+            wrong_keycode,
+            raw_flags,
+            expected_keycode,
+            expected_mask
+        ));
     }
 
     #[test]
@@ -230,7 +245,10 @@ mod tests {
     #[test]
     fn modifier_filter_masks_caps_lock_and_device_bits() {
         // MODIFIER_FILTER should only keep bits 17-20
-        assert_eq!(MODIFIER_FILTER, (1 << 17) | (1 << 18) | (1 << 19) | (1 << 20));
+        assert_eq!(
+            MODIFIER_FILTER,
+            (1 << 17) | (1 << 18) | (1 << 19) | (1 << 20)
+        );
         // Caps lock (bit 16) and other low/high bits should be masked out
         assert_eq!(MODIFIER_FILTER & (1 << 16), 0);
         assert_eq!(MODIFIER_FILTER & (1 << 21), 0);
@@ -243,7 +261,10 @@ pub fn install_and_run(cfg: &Config, running: Arc<AtomicBool>) {
     let keycode = match config::keycode_for(&cfg.hotkey.key) {
         Some(k) => k,
         None => {
-            eprintln!("Unknown hotkey key: '{}'. Run `rippy hotkey show` for valid keys.", cfg.hotkey.key);
+            eprintln!(
+                "Unknown hotkey key: '{}'. Run `rippy hotkey show` for valid keys.",
+                cfg.hotkey.key
+            );
             return;
         }
     };
@@ -287,7 +308,10 @@ pub fn install_and_run(cfg: &Config, running: Arc<AtomicBool>) {
         let source = CFMachPortCreateRunLoopSource(std::ptr::null(), tap, 0);
         CFRunLoopAddSource(run_loop, source, kCFRunLoopCommonModes);
 
-        eprintln!("Hotkey {} registered. Listening...", config::format_hotkey(&cfg.hotkey));
+        eprintln!(
+            "Hotkey {} registered. Listening...",
+            config::format_hotkey(&cfg.hotkey)
+        );
 
         // Poll the running flag on a background thread; stop the run loop when signaled.
         let running_clone = running.clone();

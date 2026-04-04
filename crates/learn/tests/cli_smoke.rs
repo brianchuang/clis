@@ -16,7 +16,11 @@ fn init_creates_vault_structure() {
         .unwrap();
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(output.status.success(), "stderr: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     assert!(stdout.contains("Vault initialized"));
     assert!(dir.path().join("Concepts").is_dir());
     assert!(dir.path().join("Reviews").is_dir());
@@ -37,12 +41,7 @@ fn init_force_overwrites() {
 
     // Second init with --force
     let output = learn_bin()
-        .args([
-            "init",
-            "--vault",
-            dir.path().to_str().unwrap(),
-            "--force",
-        ])
+        .args(["init", "--vault", dir.path().to_str().unwrap(), "--force"])
         .output()
         .unwrap();
 
@@ -68,7 +67,11 @@ fn concept_new_creates_note() {
         .output()
         .unwrap();
 
-    assert!(output.status.success(), "stderr: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     assert!(dir.path().join("Concepts/Test Concept.md").exists());
 }
 
@@ -117,7 +120,11 @@ fn review_generate_creates_file() {
         .unwrap();
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(output.status.success(), "stderr: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     assert!(stdout.contains("concept(s) selected"));
 
     // Verify a review file was created in Reviews/

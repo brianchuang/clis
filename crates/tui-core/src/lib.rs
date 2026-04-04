@@ -99,7 +99,10 @@ fn handle_normal_key(
         KeyCode::Char('j') | KeyCode::Down => Some(NavAction::MoveDown),
         KeyCode::Char('k') | KeyCode::Up => Some(NavAction::MoveUp),
         KeyCode::Char('G') => Some(NavAction::MoveToBottom),
-        KeyCode::Char('g') => { *pending = Some('g'); Some(NavAction::Noop) }
+        KeyCode::Char('g') => {
+            *pending = Some('g');
+            Some(NavAction::Noop)
+        }
         KeyCode::Char('n') => Some(NavAction::NextMatch),
         KeyCode::Char('N') => Some(NavAction::PrevMatch),
         KeyCode::Char('?') => Some(NavAction::ShowHelp),
@@ -118,7 +121,9 @@ fn handle_insert_key(key: KeyEvent) -> Option<NavAction> {
         KeyCode::Esc => Some(NavAction::ExitInsert),
         KeyCode::Enter => None, // App-specific
         KeyCode::Backspace => Some(NavAction::Backspace),
-        KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => Some(NavAction::ClearSearch),
+        KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            Some(NavAction::ClearSearch)
+        }
         KeyCode::Up => Some(NavAction::MoveUp),
         KeyCode::Down => Some(NavAction::MoveDown),
         KeyCode::Char(c) => Some(NavAction::TypeChar(c)),
@@ -173,7 +178,11 @@ pub fn apply_navigation(
         }
         NavAction::PrevMatch => {
             if filtered_len > 0 {
-                if selected == 0 { filtered_len - 1 } else { selected - 1 }
+                if selected == 0 {
+                    filtered_len - 1
+                } else {
+                    selected - 1
+                }
             } else {
                 selected
             }
@@ -253,7 +262,11 @@ pub fn merge_scores(scored_lists: &[(&[(usize, f64)], f64)], count: usize) -> Ve
     }
 
     let mut indices: Vec<usize> = (0..count).filter(|&i| present[i]).collect();
-    indices.sort_by(|&a, &b| totals[b].partial_cmp(&totals[a]).unwrap_or(std::cmp::Ordering::Equal));
+    indices.sort_by(|&a, &b| {
+        totals[b]
+            .partial_cmp(&totals[a])
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     indices
 }
 
@@ -292,25 +305,31 @@ pub fn adjust_scroll(selected: usize, scroll_offset: &mut usize, list_height: us
 // --- Rendering ---
 
 /// Render the search bar widget shared across all vim-modal TUI apps.
-pub fn render_search_bar(app_name: &str, query: &str, mode: Mode, placeholder: &str) -> Paragraph<'static> {
+pub fn render_search_bar(
+    app_name: &str,
+    query: &str,
+    mode: Mode,
+    placeholder: &str,
+) -> Paragraph<'static> {
     let border_color = match mode {
         Mode::Insert => Color::Green,
         Mode::Normal => Color::Cyan,
     };
 
     let (text, style) = match mode {
-        Mode::Insert if query.is_empty() => {
-            (format!(" {placeholder}"), Style::default().fg(Color::DarkGray))
-        }
-        Mode::Insert => {
-            (format!(" {query}\u{2588}"), Style::default().fg(Color::White))
-        }
-        Mode::Normal if query.is_empty() => {
-            (" Press / to search".to_string(), Style::default().fg(Color::DarkGray))
-        }
-        Mode::Normal => {
-            (format!(" {query}"), Style::default().fg(Color::White))
-        }
+        Mode::Insert if query.is_empty() => (
+            format!(" {placeholder}"),
+            Style::default().fg(Color::DarkGray),
+        ),
+        Mode::Insert => (
+            format!(" {query}\u{2588}"),
+            Style::default().fg(Color::White),
+        ),
+        Mode::Normal if query.is_empty() => (
+            " Press / to search".to_string(),
+            Style::default().fg(Color::DarkGray),
+        ),
+        Mode::Normal => (format!(" {query}"), Style::default().fg(Color::White)),
     };
 
     let mode_label = match mode {
@@ -318,21 +337,23 @@ pub fn render_search_bar(app_name: &str, query: &str, mode: Mode, placeholder: &
         Mode::Insert => format!(" {app_name} [INSERT] "),
     };
 
-    Paragraph::new(text)
-        .style(style)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(border_color))
-                .title(mode_label),
-        )
+    Paragraph::new(text).style(style).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(border_color))
+            .title(mode_label),
+    )
 }
 
 // --- Help overlay ---
 
 /// Render a centered help overlay listing keybindings.
 /// `app_name` is shown in the title. `bindings` is a list of (key, description) pairs.
-pub fn render_help_overlay(app_name: &str, bindings: &[(&str, &str)], area: Rect) -> (Paragraph<'static>, Rect) {
+pub fn render_help_overlay(
+    app_name: &str,
+    bindings: &[(&str, &str)],
+    area: Rect,
+) -> (Paragraph<'static>, Rect) {
     let max_key_width = bindings.iter().map(|(k, _)| k.len()).max().unwrap_or(0);
     let max_desc_width = bindings.iter().map(|(_, d)| d.len()).max().unwrap_or(0);
     let inner_width = max_key_width + max_desc_width + 5; // padding + separator
@@ -349,7 +370,9 @@ pub fn render_help_overlay(app_name: &str, bindings: &[(&str, &str)], area: Rect
             Line::from(vec![
                 Span::styled(
                     format!("  {key:>width$}", width = max_key_width),
-                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
                 ),
                 Span::raw("  "),
                 Span::styled(desc.to_string(), Style::default().fg(Color::White)),
@@ -408,11 +431,21 @@ mod tests {
     fn ctrl_c_always_quits() {
         let mut pending = None;
         assert_eq!(
-            handle_key(make_test_key_with_mods(KeyCode::Char('c'), KeyModifiers::CONTROL), Mode::Normal, &mut pending, &[]),
+            handle_key(
+                make_test_key_with_mods(KeyCode::Char('c'), KeyModifiers::CONTROL),
+                Mode::Normal,
+                &mut pending,
+                &[]
+            ),
             Some(NavAction::Quit)
         );
         assert_eq!(
-            handle_key(make_test_key_with_mods(KeyCode::Char('c'), KeyModifiers::CONTROL), Mode::Insert, &mut pending, &[]),
+            handle_key(
+                make_test_key_with_mods(KeyCode::Char('c'), KeyModifiers::CONTROL),
+                Mode::Insert,
+                &mut pending,
+                &[]
+            ),
             Some(NavAction::Quit)
         );
     }
@@ -420,40 +453,85 @@ mod tests {
     #[test]
     fn normal_q_quits() {
         let mut pending = None;
-        assert_eq!(handle_key(make_test_key(KeyCode::Char('q')), Mode::Normal, &mut pending, &[]), Some(NavAction::Quit));
+        assert_eq!(
+            handle_key(
+                make_test_key(KeyCode::Char('q')),
+                Mode::Normal,
+                &mut pending,
+                &[]
+            ),
+            Some(NavAction::Quit)
+        );
     }
 
     #[test]
     fn normal_esc_quits() {
         let mut pending = None;
-        assert_eq!(handle_key(make_test_key(KeyCode::Esc), Mode::Normal, &mut pending, &[]), Some(NavAction::Quit));
+        assert_eq!(
+            handle_key(make_test_key(KeyCode::Esc), Mode::Normal, &mut pending, &[]),
+            Some(NavAction::Quit)
+        );
     }
 
     #[test]
     fn normal_j_moves_down() {
         let mut pending = None;
-        assert_eq!(handle_key(make_test_key(KeyCode::Char('j')), Mode::Normal, &mut pending, &[]), Some(NavAction::MoveDown));
+        assert_eq!(
+            handle_key(
+                make_test_key(KeyCode::Char('j')),
+                Mode::Normal,
+                &mut pending,
+                &[]
+            ),
+            Some(NavAction::MoveDown)
+        );
     }
 
     #[test]
     fn normal_k_moves_up() {
         let mut pending = None;
-        assert_eq!(handle_key(make_test_key(KeyCode::Char('k')), Mode::Normal, &mut pending, &[]), Some(NavAction::MoveUp));
+        assert_eq!(
+            handle_key(
+                make_test_key(KeyCode::Char('k')),
+                Mode::Normal,
+                &mut pending,
+                &[]
+            ),
+            Some(NavAction::MoveUp)
+        );
     }
 
     #[test]
     fn normal_big_g_moves_to_bottom() {
         let mut pending = None;
-        assert_eq!(handle_key(make_test_key(KeyCode::Char('G')), Mode::Normal, &mut pending, &[]), Some(NavAction::MoveToBottom));
+        assert_eq!(
+            handle_key(
+                make_test_key(KeyCode::Char('G')),
+                Mode::Normal,
+                &mut pending,
+                &[]
+            ),
+            Some(NavAction::MoveToBottom)
+        );
     }
 
     #[test]
     fn normal_gg_moves_to_top() {
         let mut pending = None;
-        let action = handle_key(make_test_key(KeyCode::Char('g')), Mode::Normal, &mut pending, &[]);
+        let action = handle_key(
+            make_test_key(KeyCode::Char('g')),
+            Mode::Normal,
+            &mut pending,
+            &[],
+        );
         assert_eq!(action, Some(NavAction::Noop));
         assert_eq!(pending, Some('g'));
-        let action = handle_key(make_test_key(KeyCode::Char('g')), Mode::Normal, &mut pending, &[]);
+        let action = handle_key(
+            make_test_key(KeyCode::Char('g')),
+            Mode::Normal,
+            &mut pending,
+            &[],
+        );
         assert_eq!(action, Some(NavAction::MoveToTop));
         assert!(pending.is_none());
     }
@@ -461,40 +539,87 @@ mod tests {
     #[test]
     fn normal_g_then_other_is_noop() {
         let mut pending = None;
-        handle_key(make_test_key(KeyCode::Char('g')), Mode::Normal, &mut pending, &[]);
-        let action = handle_key(make_test_key(KeyCode::Char('x')), Mode::Normal, &mut pending, &[]);
+        handle_key(
+            make_test_key(KeyCode::Char('g')),
+            Mode::Normal,
+            &mut pending,
+            &[],
+        );
+        let action = handle_key(
+            make_test_key(KeyCode::Char('x')),
+            Mode::Normal,
+            &mut pending,
+            &[],
+        );
         assert_eq!(action, Some(NavAction::Noop));
     }
 
     #[test]
     fn normal_n_next_match() {
         let mut pending = None;
-        assert_eq!(handle_key(make_test_key(KeyCode::Char('n')), Mode::Normal, &mut pending, &[]), Some(NavAction::NextMatch));
+        assert_eq!(
+            handle_key(
+                make_test_key(KeyCode::Char('n')),
+                Mode::Normal,
+                &mut pending,
+                &[]
+            ),
+            Some(NavAction::NextMatch)
+        );
     }
 
     #[test]
     fn normal_shift_n_prev_match() {
         let mut pending = None;
-        assert_eq!(handle_key(make_test_key(KeyCode::Char('N')), Mode::Normal, &mut pending, &[]), Some(NavAction::PrevMatch));
+        assert_eq!(
+            handle_key(
+                make_test_key(KeyCode::Char('N')),
+                Mode::Normal,
+                &mut pending,
+                &[]
+            ),
+            Some(NavAction::PrevMatch)
+        );
     }
 
     #[test]
     fn normal_question_mark_shows_help() {
         let mut pending = None;
-        assert_eq!(handle_key(make_test_key(KeyCode::Char('?')), Mode::Normal, &mut pending, &[]), Some(NavAction::ShowHelp));
+        assert_eq!(
+            handle_key(
+                make_test_key(KeyCode::Char('?')),
+                Mode::Normal,
+                &mut pending,
+                &[]
+            ),
+            Some(NavAction::ShowHelp)
+        );
     }
 
     #[test]
     fn normal_slash_enters_insert() {
         let mut pending = None;
-        assert_eq!(handle_key(make_test_key(KeyCode::Char('/')), Mode::Normal, &mut pending, &[]), Some(NavAction::EnterInsert));
+        assert_eq!(
+            handle_key(
+                make_test_key(KeyCode::Char('/')),
+                Mode::Normal,
+                &mut pending,
+                &[]
+            ),
+            Some(NavAction::EnterInsert)
+        );
     }
 
     #[test]
     fn normal_ctrl_d_half_page_down() {
         let mut pending = None;
         assert_eq!(
-            handle_key(make_test_key_with_mods(KeyCode::Char('d'), KeyModifiers::CONTROL), Mode::Normal, &mut pending, &[]),
+            handle_key(
+                make_test_key_with_mods(KeyCode::Char('d'), KeyModifiers::CONTROL),
+                Mode::Normal,
+                &mut pending,
+                &[]
+            ),
             Some(NavAction::HalfPageDown)
         );
     }
@@ -503,7 +628,12 @@ mod tests {
     fn normal_ctrl_u_half_page_up() {
         let mut pending = None;
         assert_eq!(
-            handle_key(make_test_key_with_mods(KeyCode::Char('u'), KeyModifiers::CONTROL), Mode::Normal, &mut pending, &[]),
+            handle_key(
+                make_test_key_with_mods(KeyCode::Char('u'), KeyModifiers::CONTROL),
+                Mode::Normal,
+                &mut pending,
+                &[]
+            ),
             Some(NavAction::HalfPageUp)
         );
     }
@@ -511,38 +641,78 @@ mod tests {
     #[test]
     fn normal_enter_returns_none() {
         let mut pending = None;
-        assert_eq!(handle_key(make_test_key(KeyCode::Enter), Mode::Normal, &mut pending, &[]), None);
+        assert_eq!(
+            handle_key(
+                make_test_key(KeyCode::Enter),
+                Mode::Normal,
+                &mut pending,
+                &[]
+            ),
+            None
+        );
     }
 
     #[test]
     fn insert_esc_exits() {
         let mut pending = None;
-        assert_eq!(handle_key(make_test_key(KeyCode::Esc), Mode::Insert, &mut pending, &[]), Some(NavAction::ExitInsert));
+        assert_eq!(
+            handle_key(make_test_key(KeyCode::Esc), Mode::Insert, &mut pending, &[]),
+            Some(NavAction::ExitInsert)
+        );
     }
 
     #[test]
     fn insert_enter_returns_none() {
         let mut pending = None;
-        assert_eq!(handle_key(make_test_key(KeyCode::Enter), Mode::Insert, &mut pending, &[]), None);
+        assert_eq!(
+            handle_key(
+                make_test_key(KeyCode::Enter),
+                Mode::Insert,
+                &mut pending,
+                &[]
+            ),
+            None
+        );
     }
 
     #[test]
     fn insert_char_types() {
         let mut pending = None;
-        assert_eq!(handle_key(make_test_key(KeyCode::Char('a')), Mode::Insert, &mut pending, &[]), Some(NavAction::TypeChar('a')));
+        assert_eq!(
+            handle_key(
+                make_test_key(KeyCode::Char('a')),
+                Mode::Insert,
+                &mut pending,
+                &[]
+            ),
+            Some(NavAction::TypeChar('a'))
+        );
     }
 
     #[test]
     fn insert_backspace() {
         let mut pending = None;
-        assert_eq!(handle_key(make_test_key(KeyCode::Backspace), Mode::Insert, &mut pending, &[]), Some(NavAction::Backspace));
+        assert_eq!(
+            handle_key(
+                make_test_key(KeyCode::Backspace),
+                Mode::Insert,
+                &mut pending,
+                &[]
+            ),
+            Some(NavAction::Backspace)
+        );
     }
 
     #[test]
     fn insert_ctrl_u_clears() {
         let mut pending = None;
         assert_eq!(
-            handle_key(make_test_key_with_mods(KeyCode::Char('u'), KeyModifiers::CONTROL), Mode::Insert, &mut pending, &[]),
+            handle_key(
+                make_test_key_with_mods(KeyCode::Char('u'), KeyModifiers::CONTROL),
+                Mode::Insert,
+                &mut pending,
+                &[]
+            ),
             Some(NavAction::ClearSearch)
         );
     }
@@ -550,14 +720,30 @@ mod tests {
     #[test]
     fn insert_arrows_navigate() {
         let mut pending = None;
-        assert_eq!(handle_key(make_test_key(KeyCode::Up), Mode::Insert, &mut pending, &[]), Some(NavAction::MoveUp));
-        assert_eq!(handle_key(make_test_key(KeyCode::Down), Mode::Insert, &mut pending, &[]), Some(NavAction::MoveDown));
+        assert_eq!(
+            handle_key(make_test_key(KeyCode::Up), Mode::Insert, &mut pending, &[]),
+            Some(NavAction::MoveUp)
+        );
+        assert_eq!(
+            handle_key(
+                make_test_key(KeyCode::Down),
+                Mode::Insert,
+                &mut pending,
+                &[]
+            ),
+            Some(NavAction::MoveDown)
+        );
     }
 
     #[test]
     fn extra_pending_key_returns_none() {
         let mut pending = None;
-        let action = handle_key(make_test_key(KeyCode::Char('d')), Mode::Normal, &mut pending, &['d']);
+        let action = handle_key(
+            make_test_key(KeyCode::Char('d')),
+            Mode::Normal,
+            &mut pending,
+            &['d'],
+        );
         assert_eq!(action, None);
         assert_eq!(pending, Some('d'));
     }
@@ -565,7 +751,12 @@ mod tests {
     #[test]
     fn extra_pending_combo_returns_none() {
         let mut pending = Some('d');
-        let action = handle_key(make_test_key(KeyCode::Char('d')), Mode::Normal, &mut pending, &['d']);
+        let action = handle_key(
+            make_test_key(KeyCode::Char('d')),
+            Mode::Normal,
+            &mut pending,
+            &['d'],
+        );
         // 'd' is not 'g', so the combo ('d','d') falls through to the extra_pending branch
         assert_eq!(action, None);
     }
@@ -730,7 +921,10 @@ mod tests {
         let scored = score_fuzzy(&items, "app", |s| s.to_string());
         assert_eq!(scored.len(), 2);
         let score_map: std::collections::HashMap<usize, f64> = scored.into_iter().collect();
-        assert!(score_map[&1] >= score_map[&0], "exact match 'app' should score >= 'xyzappxyz'");
+        assert!(
+            score_map[&1] >= score_map[&0],
+            "exact match 'app' should score >= 'xyzappxyz'"
+        );
     }
 
     // --- score_recency tests ---
@@ -741,7 +935,11 @@ mod tests {
         let items = vec![now];
         let scored = score_recency(&items, |t| *t, 24.0);
         assert_eq!(scored.len(), 1);
-        assert!((scored[0].1 - 1.0).abs() < 0.01, "score for now should be ~1.0, got {}", scored[0].1);
+        assert!(
+            (scored[0].1 - 1.0).abs() < 0.01,
+            "score for now should be ~1.0, got {}",
+            scored[0].1
+        );
     }
 
     #[test]
@@ -751,7 +949,11 @@ mod tests {
         let old = now - chrono::Duration::hours(24);
         let items = vec![old];
         let scored = score_recency(&items, |t| *t, half_life);
-        assert!((scored[0].1 - 0.5).abs() < 0.01, "score at half-life should be ~0.5, got {}", scored[0].1);
+        assert!(
+            (scored[0].1 - 0.5).abs() < 0.01,
+            "score at half-life should be ~0.5, got {}",
+            scored[0].1
+        );
     }
 
     #[test]
@@ -761,7 +963,12 @@ mod tests {
         let old = now - chrono::Duration::hours(48);
         let items = vec![recent, old];
         let scored = score_recency(&items, |t| *t, 24.0);
-        assert!(scored[0].1 > scored[1].1, "recent ({}) should score higher than old ({})", scored[0].1, scored[1].1);
+        assert!(
+            scored[0].1 > scored[1].1,
+            "recent ({}) should score higher than old ({})",
+            scored[0].1,
+            scored[1].1
+        );
     }
 
     #[test]

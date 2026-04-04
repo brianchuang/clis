@@ -80,15 +80,24 @@ mod tests {
     fn build_launch_script_iterm2_contains_binary_path() {
         let script = build_launch_script("iTerm2", "/usr/local/bin/rippy");
         assert!(script.contains("iTerm2"), "script must target iTerm2");
-        assert!(script.contains("/usr/local/bin/rippy"), "script must include binary path");
-        assert!(script.contains("; exit"), "script must exit after TUI closes");
+        assert!(
+            script.contains("/usr/local/bin/rippy"),
+            "script must include binary path"
+        );
+        assert!(
+            script.contains("; exit"),
+            "script must exit after TUI closes"
+        );
     }
 
     #[test]
     fn build_launch_script_iterm2_case_variants() {
         for name in ["iTerm2", "iterm2", "iterm"] {
             let script = build_launch_script(name, "/bin/rippy");
-            assert!(script.contains("iTerm2"), "{name} should generate iTerm2 script");
+            assert!(
+                script.contains("iTerm2"),
+                "{name} should generate iTerm2 script"
+            );
         }
     }
 

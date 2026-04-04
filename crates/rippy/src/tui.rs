@@ -4,7 +4,9 @@ use crate::db::{ClipEntry, Store};
 use crate::tag;
 use crate::watcher::Watcher;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
-use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
+use crossterm::terminal::{
+    disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
+};
 use crossterm::ExecutableCommand;
 use ratatui::prelude::*;
 use ratatui::widgets::*;
@@ -69,7 +71,8 @@ impl App {
     fn refresh(&mut self) {
         let prev_id = self.selected_entry().map(|e| e.id);
         self.entries = self.store.all().unwrap_or_default();
-        self.filtered = tui_core::compute_filtered(&self.entries, &self.query, |e| e.content.clone());
+        self.filtered =
+            tui_core::compute_filtered(&self.entries, &self.query, |e| e.content.clone());
         // Restore selection to the same entry by ID, falling back to clamp
         if let Some(id) = prev_id {
             if let Some(pos) = self.filtered.iter().position(|&i| self.entries[i].id == id) {
@@ -83,7 +86,8 @@ impl App {
     }
 
     fn refilter(&mut self) {
-        self.filtered = tui_core::compute_filtered(&self.entries, &self.query, |e| e.content.clone());
+        self.filtered =
+            tui_core::compute_filtered(&self.entries, &self.query, |e| e.content.clone());
         self.clamp_selection();
     }
 
@@ -149,48 +153,46 @@ fn handle_key(key: crossterm::event::KeyEvent, mode: Mode, pending: &mut Option<
 fn apply_action(app: &mut App, action: Action) {
     let prev_selected = app.selected;
     match action {
-        Action::Nav(nav) => {
-            match nav {
-                NavAction::Noop => {}
-                NavAction::Quit => app.should_quit = true,
-                NavAction::ShowHelp => app.show_help = !app.show_help,
-                NavAction::EnterInsert => app.mode = Mode::Insert,
-                NavAction::ExitInsert => {
-                    app.mode = Mode::Normal;
-                    app.pending_key = None;
-                }
-                NavAction::TypeChar(c) => {
-                    app.query.push(c);
-                    app.refilter();
-                    app.reset_selection();
-                }
-                NavAction::Backspace => {
-                    app.query.pop();
-                    app.refilter();
-                    app.reset_selection();
-                }
-                NavAction::ClearSearch => {
-                    app.query.clear();
-                    app.refilter();
-                    app.reset_selection();
-                }
-                ref nav_action @ (NavAction::MoveUp
-                | NavAction::MoveDown
-                | NavAction::MoveToTop
-                | NavAction::MoveToBottom
-                | NavAction::HalfPageUp
-                | NavAction::HalfPageDown
-                | NavAction::NextMatch
-                | NavAction::PrevMatch) => {
-                    app.selected = tui_core::apply_navigation(
-                        nav_action,
-                        app.selected,
-                        app.filtered.len(),
-                        app.list_height,
-                    );
-                }
+        Action::Nav(nav) => match nav {
+            NavAction::Noop => {}
+            NavAction::Quit => app.should_quit = true,
+            NavAction::ShowHelp => app.show_help = !app.show_help,
+            NavAction::EnterInsert => app.mode = Mode::Insert,
+            NavAction::ExitInsert => {
+                app.mode = Mode::Normal;
+                app.pending_key = None;
             }
-        }
+            NavAction::TypeChar(c) => {
+                app.query.push(c);
+                app.refilter();
+                app.reset_selection();
+            }
+            NavAction::Backspace => {
+                app.query.pop();
+                app.refilter();
+                app.reset_selection();
+            }
+            NavAction::ClearSearch => {
+                app.query.clear();
+                app.refilter();
+                app.reset_selection();
+            }
+            ref nav_action @ (NavAction::MoveUp
+            | NavAction::MoveDown
+            | NavAction::MoveToTop
+            | NavAction::MoveToBottom
+            | NavAction::HalfPageUp
+            | NavAction::HalfPageDown
+            | NavAction::NextMatch
+            | NavAction::PrevMatch) => {
+                app.selected = tui_core::apply_navigation(
+                    nav_action,
+                    app.selected,
+                    app.filtered.len(),
+                    app.list_height,
+                );
+            }
+        },
         Action::CopyAndQuit => {
             if let Some(entry) = app.selected_entry() {
                 clipboard::set_clipboard(&entry.content);
@@ -300,7 +302,10 @@ fn render(f: &mut Frame, app: &mut App) {
         ])
         .split(f.area());
 
-    f.render_widget(tui_core::render_search_bar("rippy", &app.query, app.mode, "Type to search\u{2026}"), chunks[0]);
+    f.render_widget(
+        tui_core::render_search_bar("rippy", &app.query, app.mode, "Type to search\u{2026}"),
+        chunks[0],
+    );
 
     let content_area = chunks[1];
     let list_area = if app.show_preview {
@@ -319,12 +324,25 @@ fn render(f: &mut Frame, app: &mut App) {
     app.list_height = list_height;
     tui_core::adjust_scroll(app.selected, &mut app.scroll_offset, list_height);
     f.render_widget(
-        render_clip_list(&app.entries, &app.filtered, app.selected, app.scroll_offset, list_height, app.copied_id),
+        render_clip_list(
+            &app.entries,
+            &app.filtered,
+            app.selected,
+            app.scroll_offset,
+            list_height,
+            app.copied_id,
+        ),
         list_area,
     );
 
     f.render_widget(
-        render_status_bar(app.filtered.len(), app.entries.len(), app.copied_id, app.mode, app.show_preview),
+        render_status_bar(
+            app.filtered.len(),
+            app.entries.len(),
+            app.copied_id,
+            app.mode,
+            app.show_preview,
+        ),
         chunks[2],
     );
 
@@ -370,7 +388,14 @@ fn render_clip_list<'a>(
 }
 
 fn render_list_item(entry: &ClipEntry, is_selected: bool, copied_id: Option<i64>) -> ListItem<'_> {
-    let preview: String = entry.content.lines().next().unwrap_or("").chars().take(200).collect();
+    let preview: String = entry
+        .content
+        .lines()
+        .next()
+        .unwrap_or("")
+        .chars()
+        .take(200)
+        .collect();
     let time = entry.timestamp.format("%m/%d %H:%M");
     let pin = if entry.pinned { "★ " } else { "  " };
     let content_tag = tag::detect(&entry.content);
@@ -381,14 +406,28 @@ fn render_list_item(entry: &ClipEntry, is_selected: bool, copied_id: Option<i64>
         _ => Style::default(),
     };
 
-    let time_color = if is_selected { Color::Cyan } else { Color::DarkGray };
-    let pin_color = if is_selected { Color::Yellow } else { Color::DarkGray };
+    let time_color = if is_selected {
+        Color::Cyan
+    } else {
+        Color::DarkGray
+    };
+    let pin_color = if is_selected {
+        Color::Yellow
+    } else {
+        Color::DarkGray
+    };
     let tag_color = tag_color(content_tag, is_selected);
 
     ListItem::new(Line::from(vec![
         Span::styled(pin, style.patch(Style::default().fg(pin_color))),
-        Span::styled(format!("{time} "), style.patch(Style::default().fg(time_color))),
-        Span::styled(format!("{:<4} ", content_tag.label()), style.patch(Style::default().fg(tag_color))),
+        Span::styled(
+            format!("{time} "),
+            style.patch(Style::default().fg(time_color)),
+        ),
+        Span::styled(
+            format!("{:<4} ", content_tag.label()),
+            style.patch(Style::default().fg(tag_color)),
+        ),
         Span::styled(format!("\u{2502} {preview}"), style),
     ]))
 }
@@ -416,7 +455,11 @@ fn render_preview(f: &mut Frame, app: &App, area: Rect) {
         .borders(Borders::LEFT)
         .border_style(Style::default().fg(Color::DarkGray))
         .title(" Preview ")
-        .title_style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD));
+        .title_style(
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        );
 
     let inner = block.inner(area);
     f.render_widget(block, area);
@@ -451,9 +494,18 @@ fn render_preview(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(paragraph, inner);
 }
 
-fn render_status_bar(count: usize, total: usize, copied_id: Option<i64>, mode: Mode, show_preview: bool) -> Paragraph<'static> {
+fn render_status_bar(
+    count: usize,
+    total: usize,
+    copied_id: Option<i64>,
+    mode: Mode,
+    show_preview: bool,
+) -> Paragraph<'static> {
     let (text, style) = if copied_id.is_some() {
-        (" Copied! ".to_string(), Style::default().bg(Color::Green).fg(Color::Black))
+        (
+            " Copied! ".to_string(),
+            Style::default().bg(Color::Green).fg(Color::Black),
+        )
     } else {
         let help = match mode {
             Mode::Normal => {

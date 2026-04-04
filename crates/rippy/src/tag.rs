@@ -85,7 +85,10 @@ fn looks_like_code(s: &str) -> bool {
 
     // Multi-line with indentation is a strong code signal
     if lines.len() >= 2 {
-        let indented = lines.iter().filter(|l| !l.is_empty() && (l.starts_with("  ") || l.starts_with('\t'))).count();
+        let indented = lines
+            .iter()
+            .filter(|l| !l.is_empty() && (l.starts_with("  ") || l.starts_with('\t')))
+            .count();
         if indented >= 2 {
             return true;
         }
@@ -93,8 +96,16 @@ fn looks_like_code(s: &str) -> bool {
 
     // Common code patterns — strong markers (keywords that are almost always code)
     let strong_markers = [
-        "fn ", "def ", "func ", "function ", "class ", "struct ", "enum ",
-        "import ", "#include", "require(",
+        "fn ",
+        "def ",
+        "func ",
+        "function ",
+        "class ",
+        "struct ",
+        "enum ",
+        "import ",
+        "#include",
+        "require(",
     ];
     if strong_markers.iter().any(|m| s.contains(m)) {
         return true;
@@ -102,17 +113,16 @@ fn looks_like_code(s: &str) -> bool {
 
     // Weaker markers need a matching ending to confirm
     let weak_markers = [
-        "from ", "use ", "if (", "if(", "for (", "for(", "while (", "while(",
-        "return ", "const ", "let ", "var ", "pub ",
-        "=> ", "-> ", "||", "&&",
+        "from ", "use ", "if (", "if(", "for (", "for(", "while (", "while(", "return ", "const ",
+        "let ", "var ", "pub ", "=> ", "-> ", "||", "&&",
     ];
 
     let end_markers = [";", "{", "}", "};", "),", "])", "});", ":"];
 
     let has_marker = weak_markers.iter().any(|m| s.contains(m));
-    let has_end = end_markers.iter().any(|m| {
-        lines.iter().any(|l| l.trim().ends_with(m))
-    });
+    let has_end = end_markers
+        .iter()
+        .any(|m| lines.iter().any(|l| l.trim().ends_with(m)));
 
     has_marker && has_end
 }
@@ -141,21 +151,33 @@ mod tests {
     #[test]
     fn paths_not_sentences() {
         // Sentences with slashes shouldn't be paths
-        assert_ne!(detect("this is a sentence and/or something"), ContentTag::Path);
+        assert_ne!(
+            detect("this is a sentence and/or something"),
+            ContentTag::Path
+        );
     }
 
     #[test]
     fn code_snippets() {
-        assert_eq!(detect("fn main() {\n    println!(\"hello\");\n}"), ContentTag::Code);
+        assert_eq!(
+            detect("fn main() {\n    println!(\"hello\");\n}"),
+            ContentTag::Code
+        );
         assert_eq!(detect("const x = 42;\nlet y = x + 1;"), ContentTag::Code);
-        assert_eq!(detect("import React from 'react';\nfunction App() {\n  return null;\n}"), ContentTag::Code);
+        assert_eq!(
+            detect("import React from 'react';\nfunction App() {\n  return null;\n}"),
+            ContentTag::Code
+        );
         assert_eq!(detect("def foo():\n    return 42"), ContentTag::Code);
     }
 
     #[test]
     fn plain_text() {
         assert_eq!(detect("hello world"), ContentTag::Text);
-        assert_eq!(detect("just some notes about the meeting"), ContentTag::Text);
+        assert_eq!(
+            detect("just some notes about the meeting"),
+            ContentTag::Text
+        );
         assert_eq!(detect(""), ContentTag::Text);
         assert_eq!(detect("   "), ContentTag::Text);
     }
@@ -163,7 +185,10 @@ mod tests {
     #[test]
     fn multiline_url_is_url() {
         // URL on first line — still classified as URL
-        assert_eq!(detect("https://example.com\nsome description"), ContentTag::Url);
+        assert_eq!(
+            detect("https://example.com\nsome description"),
+            ContentTag::Url
+        );
     }
 
     #[test]

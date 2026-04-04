@@ -84,14 +84,10 @@ fn parse_blocks(raw: &str) -> Vec<ParsedBlock> {
             .map(|c| c[1].parse::<u32>().unwrap());
 
         let feedback_re = Regex::new(r"(?m)^Feedback:\s*(.+)").unwrap();
-        let feedback = feedback_re
-            .captures(block)
-            .map(|c| c[1].trim().to_string());
+        let feedback = feedback_re.captures(block).map(|c| c[1].trim().to_string());
 
         let hint_re = Regex::new(r"(?m)^Hint:\s*(.+)").unwrap();
-        let hint = hint_re
-            .captures(block)
-            .map(|c| c[1].trim().to_string());
+        let hint = hint_re.captures(block).map(|c| c[1].trim().to_string());
 
         results.push(ParsedBlock {
             term,
