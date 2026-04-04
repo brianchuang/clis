@@ -16,6 +16,10 @@ pub struct HistoryConfig {
     /// Maximum number of entries to keep. Oldest entries are pruned on insert.
     #[serde(default = "default_max_entries")]
     pub max_entries: usize,
+    /// Auto-delete entries whose clipboard content disappears within this many seconds
+    /// (e.g. password manager copies). 0 = disabled.
+    #[serde(default)]
+    pub auto_expire_seconds: u64,
 }
 
 fn default_max_entries() -> usize {
@@ -26,6 +30,7 @@ impl Default for HistoryConfig {
     fn default() -> Self {
         Self {
             max_entries: default_max_entries(),
+            auto_expire_seconds: 0,
         }
     }
 }
@@ -208,6 +213,7 @@ mod tests {
     fn default_config_has_max_entries() {
         let cfg = Config::default();
         assert_eq!(cfg.history.max_entries, 10_000);
+        assert_eq!(cfg.history.auto_expire_seconds, 0);
     }
 
     #[test]
@@ -218,6 +224,18 @@ max_entries = 500
 "#;
         let cfg: Config = toml::from_str(toml_str).unwrap();
         assert_eq!(cfg.history.max_entries, 500);
+        assert_eq!(cfg.history.auto_expire_seconds, 0);
+    }
+
+    #[test]
+    fn parse_config_with_auto_expire() {
+        let toml_str = r#"
+[history]
+max_entries = 1000
+auto_expire_seconds = 15
+"#;
+        let cfg: Config = toml::from_str(toml_str).unwrap();
+        assert_eq!(cfg.history.auto_expire_seconds, 15);
     }
 
     #[test]
@@ -434,7 +452,10 @@ key = "v"
             terminal: TerminalConfig {
                 app: "Alacritty".into(),
             },
-            history: HistoryConfig { max_entries: 500 },
+            history: HistoryConfig {
+                max_entries: 500,
+                auto_expire_seconds: 15,
+            },
         };
         cfg.save(tmp.path()).unwrap();
         let loaded = Config::load(tmp.path());
@@ -442,6 +463,7 @@ key = "v"
         assert_eq!(loaded.hotkey.modifiers, vec!["ctrl", "alt"]);
         assert_eq!(loaded.terminal.app, "Alacritty");
         assert_eq!(loaded.history.max_entries, 500);
+        assert_eq!(loaded.history.auto_expire_seconds, 15);
     }
 
     #[test]

@@ -237,7 +237,11 @@ fn apply_action(app: &mut App, action: Action) {
 pub fn run(db_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let data_dir = db_path.parent().unwrap_or(Path::new("."));
     let cfg = Config::load(data_dir);
-    let watcher = Watcher::spawn(db_path, cfg.history.max_entries);
+    let watcher = Watcher::spawn(
+        db_path,
+        cfg.history.max_entries,
+        cfg.history.auto_expire_seconds,
+    );
 
     let store = Store::open(db_path)?;
     let mut app = App::new(store);
