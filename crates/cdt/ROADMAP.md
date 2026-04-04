@@ -71,7 +71,7 @@ Inspect workspaces without leaving the TUI.
 
 ## v0.7 — Install experience
 
-- [ ] **Auto-append shell integration during install** — detect shell rc file and append `eval "$(cdt init-shell)"` automatically, with idempotency check
+- [x] **Auto-append shell integration during install** — detect shell rc file and append `eval "$(cdt init-shell)"` automatically, with idempotency check
 
 ---
 
