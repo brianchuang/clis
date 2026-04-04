@@ -91,6 +91,9 @@ enum ReviewCommands {
         vault: Option<String>,
         #[arg(long)]
         file: Option<String>,
+        /// Output answered items as JSON for agent grading
+        #[arg(long)]
+        auto: bool,
     },
 }
 
@@ -382,7 +385,7 @@ fn main() {
                 println!("Review file: {file_path}");
             }
 
-            ReviewCommands::Grade { vault, file } => {
+            ReviewCommands::Grade { vault, file, auto } => {
                 let vault_root = get_vault(vault.as_deref());
                 let today = today();
                 let review_path = file
@@ -394,6 +397,50 @@ fn main() {
                     process::exit(1);
                 }
 
+                if auto {
+                    let answered = parse_answered_reviews(&review_path);
+                    // Filter to only ungraded items
+                    let graded_terms: std::collections::HashSet<String> =
+                        parse_graded_items(&review_path)
+                            .into_iter()
+                            .map(|g| g.term)
+                            .collect();
+                    let ungraded: Vec<_> = answered
+                        .into_iter()
+                        .filter(|a| !graded_terms.contains(&a.term))
+                        .collect();
+
+                    if ungraded.is_empty() {
+                        println!("No answered items awaiting grades.");
+                        return;
+                    }
+
+                    let items: Vec<serde_json::Value> = ungraded
+                        .iter()
+                        .map(|a| {
+                            let concept_body =
+                                resolve_concept_path(&vault_root, &a.term).map(|p| {
+                                    let concept = parse_concept(Path::new(&p));
+                                    concept.body
+                                });
+                            serde_json::json!({
+                                "term": a.term,
+                                "prompt_type": a.prompt_type,
+                                "prompt": a.prompt,
+                                "answer": a.answer,
+                                "concept_body": concept_body.unwrap_or_default(),
+                            })
+                        })
+                        .collect();
+
+                    println!("{}", serde_json::to_string_pretty(&serde_json::json!({
+                        "review_file": review_path.to_string_lossy(),
+                        "items": items,
+                        "rubric": "Score 0-5: 5=perfect recall, 4=good with minor gaps, 3=partial recall, 2=weak recall, 1=barely relevant, 0=wrong/empty. Fill Score/Feedback/Hint fields in the review file, then run `learn review grade` to update frontmatter.",
+                    })).unwrap());
+                    return;
+                }
+
                 let graded = parse_graded_items(&review_path);
 
                 if graded.is_empty() {
@@ -403,7 +450,7 @@ fn main() {
                     } else {
                         println!("Found {} answered item(s) awaiting grades.", answered.len());
                         println!(
-                            "Fill in Score fields manually, or run via Claude Code for AI grading."
+                            "Fill in Score fields manually, or run with --auto for agent grading."
                         );
                     }
                     return;
