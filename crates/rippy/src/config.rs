@@ -165,6 +165,25 @@ pub fn modifiers_mask(names: &[String]) -> u64 {
         .fold(0, |acc, f| acc | f)
 }
 
+/// Convert a HotkeyConfig to a macOS pbs key equivalent string for
+/// assigning keyboard shortcuts to Services via `defaults write pbs`.
+/// Format: modifier symbols followed by lowercase key.
+/// Symbols: @ = Cmd, $ = Shift, ^ = Ctrl, ~ = Option
+pub fn pbs_key_equivalent(cfg: &HotkeyConfig) -> String {
+    let mut eq = String::new();
+    for m in &cfg.modifiers {
+        match m.to_lowercase().as_str() {
+            "cmd" | "command" => eq.push('@'),
+            "shift" => eq.push('$'),
+            "ctrl" | "control" => eq.push('^'),
+            "alt" | "option" | "opt" => eq.push('~'),
+            _ => {}
+        }
+    }
+    eq.push_str(&cfg.key.to_lowercase());
+    eq
+}
+
 /// Format a hotkey config as a human-readable string.
 pub fn format_hotkey(cfg: &HotkeyConfig) -> String {
     let mods: Vec<&str> = cfg
@@ -338,6 +357,42 @@ key = "v"
     fn modifiers_mask_ignores_unknown() {
         let mask = modifiers_mask(&["cmd".into(), "bogus".into()]);
         assert_eq!(mask, modifier_flag("cmd").unwrap());
+    }
+
+    // --- pbs_key_equivalent ---
+
+    #[test]
+    fn pbs_key_equivalent_default_cmd_shift_v() {
+        let cfg = HotkeyConfig::default();
+        assert_eq!(pbs_key_equivalent(&cfg), "@$v");
+    }
+
+    #[test]
+    fn pbs_key_equivalent_ctrl_alt() {
+        let cfg = HotkeyConfig {
+            key: "f5".into(),
+            modifiers: vec!["ctrl".into(), "alt".into()],
+        };
+        assert_eq!(pbs_key_equivalent(&cfg), "^~f5");
+    }
+
+    #[test]
+    fn pbs_key_equivalent_no_modifiers() {
+        let cfg = HotkeyConfig {
+            key: "space".into(),
+            modifiers: vec![],
+        };
+        assert_eq!(pbs_key_equivalent(&cfg), "space");
+    }
+
+    #[test]
+    fn pbs_key_equivalent_aliases() {
+        let cfg = HotkeyConfig {
+            key: "a".into(),
+            modifiers: vec!["command".into(), "option".into(), "control".into()],
+        };
+        // command → @, option → ~, control → ^
+        assert_eq!(pbs_key_equivalent(&cfg), "@~^a");
     }
 
     // --- format_hotkey ---

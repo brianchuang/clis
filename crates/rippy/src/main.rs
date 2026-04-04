@@ -66,13 +66,29 @@ enum Commands {
         #[command(subcommand)]
         action: HotkeyAction,
     },
+    /// Set up a global keyboard shortcut via macOS Quick Actions (no permissions needed)
+    Shortcut {
+        #[command(subcommand)]
+        action: ShortcutAction,
+    },
     /// Print shell alias for yy shortcut (eval in your shell rc)
     InitShell,
     /// Start MCP server (stdio transport) for AI assistant integration
     Mcp,
+    /// Open rippy TUI in configured terminal (used by Quick Action)
+    #[command(hide = true)]
+    LaunchTui,
     /// Watch clipboard (used internally by launchd)
     #[command(hide = true)]
     Watch,
+}
+
+#[derive(Subcommand)]
+enum ShortcutAction {
+    /// Create a macOS Quick Action with a global keyboard shortcut
+    Install,
+    /// Remove the Quick Action and keyboard shortcut
+    Uninstall,
 }
 
 #[derive(Subcommand)]
@@ -135,10 +151,18 @@ fn run() -> Result {
         Some(Commands::Save) => println!("{}", cmd_save()?),
         Some(Commands::Clear) => println!("{}", cmd_clear()?),
         Some(Commands::Hotkey { action }) => cmd_hotkey(action)?,
+        Some(Commands::Shortcut { action }) => match action {
+            ShortcutAction::Install => println!("{}", cmd_shortcut_install()?),
+            ShortcutAction::Uninstall => println!("{}", cmd_shortcut_uninstall()?),
+        },
         Some(Commands::InitShell) => print!("{}", init_shell_output()),
         Some(Commands::Install) => println!("{}", cmd_install()?),
         Some(Commands::Uninstall) => println!("{}", cmd_uninstall()?),
         Some(Commands::Mcp) => tokio::runtime::Runtime::new()?.block_on(mcp::run(db_path()))?,
+        Some(Commands::LaunchTui) => {
+            let cfg = config::Config::load(&data_dir());
+            terminal::launch_tui(&cfg.terminal.app);
+        }
         Some(Commands::Watch) => cmd_watch()?,
     }
     Ok(())
@@ -423,6 +447,303 @@ fn cmd_uninstall() -> Result<String> {
     )
 }
 
+// --- Quick Action (macOS Services) shortcut ---
+
+const WORKFLOW_NAME: &str = "Launch Rippy";
+
+fn workflow_dir() -> PathBuf {
+    dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("~"))
+        .join("Library/Services/Launch Rippy.workflow")
+}
+
+/// Info.plist for the Quick Action .workflow bundle.
+/// Registers "Launch Rippy" as a Service that accepts no required input,
+/// making it available for a global keyboard shortcut.
+const WORKFLOW_INFO_PLIST: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>NSServices</key>
+    <array>
+        <dict>
+            <key>NSMenuItem</key>
+            <dict>
+                <key>default</key>
+                <string>Launch Rippy</string>
+            </dict>
+            <key>NSMessage</key>
+            <string>runWorkflowAsService</string>
+            <key>NSRequiredContext</key>
+            <dict/>
+            <key>NSSendTypes</key>
+            <array>
+                <string>public.utf8-plain-text</string>
+            </array>
+            <key>NSReturnTypes</key>
+            <array/>
+        </dict>
+    </array>
+</dict>
+</plist>"#;
+
+/// Build the document.wflow plist for an Automator Quick Action that runs
+/// the given shell command. Pure function for testability.
+fn workflow_document(shell_command: &str) -> String {
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>actions</key>
+    <array>
+        <dict>
+            <key>action</key>
+            <dict>
+                <key>AMAccepts</key>
+                <dict>
+                    <key>Container</key>
+                    <string>List</string>
+                    <key>Optional</key>
+                    <true/>
+                    <key>Types</key>
+                    <array/>
+                </dict>
+                <key>AMActionVersion</key>
+                <string>1.0</string>
+                <key>AMProvides</key>
+                <dict>
+                    <key>Container</key>
+                    <string>List</string>
+                    <key>Optional</key>
+                    <true/>
+                    <key>Types</key>
+                    <array/>
+                </dict>
+                <key>ActionBundlePath</key>
+                <string>/System/Library/Automator/Run Shell Script.action</string>
+                <key>ActionName</key>
+                <string>Run Shell Script</string>
+                <key>ActionParameters</key>
+                <dict>
+                    <key>COMMAND_STRING</key>
+                    <string>{shell_command}</string>
+                    <key>CheckedForUserDefaultShell</key>
+                    <true/>
+                    <key>inputMethod</key>
+                    <integer>1</integer>
+                    <key>shell</key>
+                    <string>/bin/zsh</string>
+                    <key>source</key>
+                    <string></string>
+                </dict>
+                <key>BundleIdentifier</key>
+                <string>com.apple.RunShellScript</string>
+                <key>CFBundleVersion</key>
+                <string>1.0</string>
+                <key>CanShowSelectedItemsWhenRun</key>
+                <false/>
+                <key>CanShowWhenRun</key>
+                <false/>
+                <key>Category</key>
+                <array>
+                    <string>AMCategoryUtilities</string>
+                </array>
+                <key>Class Name</key>
+                <string>RunShellScriptAction</string>
+                <key>InputUUID</key>
+                <string>A1B2C3D4-0000-0000-0000-000000000001</string>
+                <key>OutputUUID</key>
+                <string>A1B2C3D4-0000-0000-0000-000000000002</string>
+                <key>UUID</key>
+                <string>A1B2C3D4-0000-0000-0000-000000000003</string>
+                <key>UnlocalizedApplications</key>
+                <array>
+                    <string>Automator</string>
+                </array>
+                <key>arguments</key>
+                <dict>
+                    <key>0</key>
+                    <dict>
+                        <key>default value</key>
+                        <string>/bin/zsh</string>
+                        <key>name</key>
+                        <string>shell</string>
+                        <key>required</key>
+                        <string>0</string>
+                        <key>type</key>
+                        <string>0</string>
+                    </dict>
+                    <key>1</key>
+                    <dict>
+                        <key>default value</key>
+                        <integer>1</integer>
+                        <key>name</key>
+                        <string>inputMethod</string>
+                        <key>required</key>
+                        <string>0</string>
+                        <key>type</key>
+                        <string>0</string>
+                    </dict>
+                    <key>2</key>
+                    <dict>
+                        <key>default value</key>
+                        <string></string>
+                        <key>name</key>
+                        <string>COMMAND_STRING</string>
+                        <key>required</key>
+                        <string>0</string>
+                        <key>type</key>
+                        <string>0</string>
+                    </dict>
+                    <key>3</key>
+                    <dict>
+                        <key>default value</key>
+                        <true/>
+                        <key>name</key>
+                        <string>CheckedForUserDefaultShell</string>
+                        <key>required</key>
+                        <string>0</string>
+                        <key>type</key>
+                        <string>0</string>
+                    </dict>
+                    <key>4</key>
+                    <dict>
+                        <key>default value</key>
+                        <string></string>
+                        <key>name</key>
+                        <string>source</string>
+                        <key>required</key>
+                        <string>0</string>
+                        <key>type</key>
+                        <string>0</string>
+                    </dict>
+                </dict>
+                <key>isViewVisible</key>
+                <true/>
+                <key>location</key>
+                <string>529.500000:544.000000</string>
+                <key>nibPath</key>
+                <string>/System/Library/Automator/Run Shell Script.action/Contents/Resources/Base.lproj/main.nib</string>
+            </dict>
+            <key>isViewVisible</key>
+            <true/>
+        </dict>
+    </array>
+    <key>connectors</key>
+    <dict/>
+    <key>workflowMetaData</key>
+    <dict>
+        <key>workflowTypeIdentifier</key>
+        <string>com.apple.Automator.servicesMenu</string>
+    </dict>
+</dict>
+</plist>"#,
+        shell_command = shell_command
+    )
+}
+
+/// Create the .workflow bundle at `wf_dir` with the given shell command.
+/// Returns the path to document.wflow. Pure filesystem operation — no
+/// system registration.
+fn create_workflow_bundle_at(
+    wf_dir: &std::path::Path,
+    shell_command: &str,
+) -> std::result::Result<(), Box<dyn std::error::Error>> {
+    let contents_dir = wf_dir.join("Contents");
+    std::fs::create_dir_all(&contents_dir)?;
+    std::fs::write(contents_dir.join("Info.plist"), WORKFLOW_INFO_PLIST)?;
+    std::fs::write(
+        contents_dir.join("document.wflow"),
+        workflow_document(shell_command),
+    )?;
+    Ok(())
+}
+
+/// Service identifier used by pbs (pasteboard server) to reference this
+/// Quick Action. Format: `(null) - <menu-item-name> - <message>`.
+fn pbs_service_key() -> String {
+    format!("(null) - {WORKFLOW_NAME} - runWorkflowAsService")
+}
+
+fn cmd_shortcut_install() -> Result<String> {
+    let rippy_bin = std::env::current_exe()?
+        .canonicalize()?
+        .to_string_lossy()
+        .to_string();
+
+    let shell_command = format!("{rippy_bin} launch-tui");
+    let wf_dir = workflow_dir();
+
+    create_workflow_bundle_at(&wf_dir, &shell_command)?;
+
+    // Flush pbs so macOS discovers the new service.
+    std::process::Command::new("/System/Library/CoreServices/pbs")
+        .arg("-flush")
+        .status()
+        .ok();
+
+    // Try to assign the keyboard shortcut automatically.
+    let cfg = config::Config::load(&data_dir());
+    let key_equiv = config::pbs_key_equivalent(&cfg.hotkey);
+    let service_key = pbs_service_key();
+    let pbs_value = format!(r#"{{ "enabled" = 1; "key_equivalent" = "{key_equiv}"; }}"#);
+
+    let shortcut_set = std::process::Command::new("defaults")
+        .args([
+            "write",
+            "pbs",
+            "NSServicesStatus",
+            "-dict-add",
+            &service_key,
+            &pbs_value,
+        ])
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+
+    let mut msg = format!("Installed Quick Action at: {}\n", wf_dir.display());
+
+    if shortcut_set {
+        msg.push_str(&format!(
+            "\nKeyboard shortcut {} assigned automatically.",
+            config::format_hotkey(&cfg.hotkey)
+        ));
+        msg.push_str("\nYou may need to log out and back in, or restart, for it to take effect.");
+    }
+
+    msg.push_str("\n\nTo set or change the keyboard shortcut manually:");
+    msg.push_str("\n  System Settings > Keyboard > Keyboard Shortcuts > Services > General");
+    msg.push_str(&format!(
+        "\n  Find \"{}\" and assign your preferred shortcut.",
+        WORKFLOW_NAME
+    ));
+    msg.push_str("\n\nNo Input Monitoring or Accessibility permissions required.");
+
+    Ok(msg)
+}
+
+fn cmd_shortcut_uninstall() -> Result<String> {
+    let wf_dir = workflow_dir();
+
+    if !wf_dir.exists() {
+        return Ok("No Quick Action shortcut installed.".into());
+    }
+
+    std::fs::remove_dir_all(&wf_dir)?;
+
+    // Flush pbs to deregister the service.
+    std::process::Command::new("/System/Library/CoreServices/pbs")
+        .arg("-flush")
+        .status()
+        .ok();
+
+    Ok(format!(
+        "Removed Quick Action: {}\nKeyboard shortcut deregistered.",
+        wf_dir.display()
+    ))
+}
+
 fn cmd_hotkey(action: HotkeyAction) -> Result {
     let dir = data_dir();
     match action {
@@ -697,6 +1018,65 @@ mod tests {
             !stderr.contains("Info.plist=not bound"),
             "Info.plist must NOT be 'not bound', got: {stderr}"
         );
+    }
+
+    // --- Quick Action shortcut ---
+
+    #[test]
+    fn workflow_document_contains_shell_command() {
+        let doc = workflow_document("/usr/local/bin/rippy launch-tui");
+        assert!(doc.contains("/usr/local/bin/rippy launch-tui"));
+        assert!(doc.contains("com.apple.Automator.servicesMenu"));
+        assert!(doc.contains("Run Shell Script"));
+    }
+
+    #[test]
+    fn workflow_document_escapes_nothing_in_simple_path() {
+        let doc = workflow_document("/bin/rippy launch-tui");
+        assert!(doc.contains("<string>/bin/rippy launch-tui</string>"));
+    }
+
+    #[test]
+    fn workflow_info_plist_has_service_definition() {
+        assert!(WORKFLOW_INFO_PLIST.contains("Launch Rippy"));
+        assert!(WORKFLOW_INFO_PLIST.contains("runWorkflowAsService"));
+        assert!(WORKFLOW_INFO_PLIST.contains("NSRequiredContext"));
+    }
+
+    #[test]
+    fn create_workflow_bundle_has_correct_structure() {
+        let tmp = tempfile::tempdir().unwrap();
+        let wf_dir = tmp.path().join("Test.workflow");
+
+        create_workflow_bundle_at(&wf_dir, "/bin/rippy launch-tui").unwrap();
+
+        assert!(wf_dir.join("Contents/Info.plist").exists());
+        assert!(wf_dir.join("Contents/document.wflow").exists());
+
+        let info = std::fs::read_to_string(wf_dir.join("Contents/Info.plist")).unwrap();
+        assert!(info.contains("Launch Rippy"));
+
+        let doc = std::fs::read_to_string(wf_dir.join("Contents/document.wflow")).unwrap();
+        assert!(doc.contains("/bin/rippy launch-tui"));
+    }
+
+    #[test]
+    fn create_workflow_bundle_overwrites_existing() {
+        let tmp = tempfile::tempdir().unwrap();
+        let wf_dir = tmp.path().join("Test.workflow");
+
+        create_workflow_bundle_at(&wf_dir, "/old/path").unwrap();
+        create_workflow_bundle_at(&wf_dir, "/new/path").unwrap();
+
+        let doc = std::fs::read_to_string(wf_dir.join("Contents/document.wflow")).unwrap();
+        assert!(doc.contains("/new/path"));
+        assert!(!doc.contains("/old/path"));
+    }
+
+    #[test]
+    fn pbs_service_key_format() {
+        let key = pbs_service_key();
+        assert_eq!(key, "(null) - Launch Rippy - runWorkflowAsService");
     }
 
     #[test]
