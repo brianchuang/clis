@@ -102,7 +102,7 @@ All code in this repo is written by agents. Follow this process exactly:
    cargo clippy --workspace -- -D warnings    # no warnings
    ```
 8. **Commit** with a concise message: what changed and why (1-2 sentences).
-9. **Push and open a PR** against `main`. The PR template will guide you — fill in every section. CI runs automatically on the PR.
+9. **Push and open a PR** against `main`. The PR template will guide you — fill in every section. Pre-push hooks enforce all checks before code reaches the remote.
 10. **Wait for review.** Do not merge your own PR.
 
 ### What agents must NOT do
