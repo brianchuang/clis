@@ -155,4 +155,183 @@ key = "v"
         let cfg: Config = toml::from_str(toml_str).unwrap();
         assert_eq!(cfg.history.max_entries, 10_000);
     }
+
+    // --- keycode mapping ---
+
+    #[test]
+    fn keycode_for_all_letters() {
+        for ch in 'a'..='z' {
+            let name = ch.to_string();
+            assert!(keycode_for(&name).is_some(), "keycode_for('{name}') should be Some");
+        }
+    }
+
+    #[test]
+    fn keycode_for_case_insensitive() {
+        assert_eq!(keycode_for("v"), keycode_for("V"));
+        assert_eq!(keycode_for("f1"), keycode_for("F1"));
+    }
+
+    #[test]
+    fn keycode_for_digits() {
+        for d in '0'..='9' {
+            let name = d.to_string();
+            assert!(keycode_for(&name).is_some(), "keycode_for('{name}') should be Some");
+        }
+    }
+
+    #[test]
+    fn keycode_for_special_keys() {
+        assert!(keycode_for("space").is_some());
+        assert!(keycode_for("escape").is_some());
+        assert!(keycode_for("esc").is_some());
+        assert_eq!(keycode_for("escape"), keycode_for("esc"));
+    }
+
+    #[test]
+    fn keycode_for_function_keys() {
+        for i in 1..=12 {
+            let name = format!("f{i}");
+            assert!(keycode_for(&name).is_some(), "keycode_for('{name}') should be Some");
+        }
+    }
+
+    #[test]
+    fn keycode_for_unknown_returns_none() {
+        assert!(keycode_for("").is_none());
+        assert!(keycode_for("backspace").is_none());
+        assert!(keycode_for("tab").is_none());
+    }
+
+    #[test]
+    fn keycode_v_is_0x09() {
+        // This specific value is what macOS sends for the 'v' key
+        assert_eq!(keycode_for("v"), Some(0x09));
+    }
+
+    // --- modifier mapping ---
+
+    #[test]
+    fn modifier_flag_all_aliases() {
+        // cmd aliases
+        assert_eq!(modifier_flag("cmd"), modifier_flag("command"));
+        assert!(modifier_flag("cmd").is_some());
+
+        // ctrl aliases
+        assert_eq!(modifier_flag("ctrl"), modifier_flag("control"));
+
+        // alt aliases
+        assert_eq!(modifier_flag("alt"), modifier_flag("option"));
+        assert_eq!(modifier_flag("alt"), modifier_flag("opt"));
+
+        assert!(modifier_flag("shift").is_some());
+    }
+
+    #[test]
+    fn modifier_flag_unknown_returns_none() {
+        assert!(modifier_flag("super").is_none());
+        assert!(modifier_flag("").is_none());
+        assert!(modifier_flag("meta").is_none());
+    }
+
+    #[test]
+    fn modifier_flags_are_distinct_powers_of_two() {
+        let flags: Vec<u64> = ["cmd", "shift", "ctrl", "alt"]
+            .iter()
+            .map(|n| modifier_flag(n).unwrap())
+            .collect();
+        // Each flag should be a single bit
+        for &f in &flags {
+            assert_eq!(f.count_ones(), 1, "modifier flag {f:#x} should be a single bit");
+        }
+        // All flags should be distinct
+        for i in 0..flags.len() {
+            for j in (i + 1)..flags.len() {
+                assert_ne!(flags[i], flags[j], "modifier flags should be distinct");
+            }
+        }
+    }
+
+    // --- modifiers_mask ---
+
+    #[test]
+    fn modifiers_mask_empty() {
+        assert_eq!(modifiers_mask(&[]), 0);
+    }
+
+    #[test]
+    fn modifiers_mask_combines_flags() {
+        let mask = modifiers_mask(&["cmd".into(), "shift".into()]);
+        let expected = modifier_flag("cmd").unwrap() | modifier_flag("shift").unwrap();
+        assert_eq!(mask, expected);
+    }
+
+    #[test]
+    fn modifiers_mask_ignores_unknown() {
+        let mask = modifiers_mask(&["cmd".into(), "bogus".into()]);
+        assert_eq!(mask, modifier_flag("cmd").unwrap());
+    }
+
+    // --- format_hotkey ---
+
+    #[test]
+    fn format_hotkey_default() {
+        let cfg = HotkeyConfig::default();
+        assert_eq!(format_hotkey(&cfg), "Cmd+Shift+V");
+    }
+
+    #[test]
+    fn format_hotkey_single_modifier() {
+        let cfg = HotkeyConfig { key: "a".into(), modifiers: vec!["ctrl".into()] };
+        assert_eq!(format_hotkey(&cfg), "Ctrl+A");
+    }
+
+    #[test]
+    fn format_hotkey_all_modifiers() {
+        let cfg = HotkeyConfig {
+            key: "f5".into(),
+            modifiers: vec!["cmd".into(), "shift".into(), "ctrl".into(), "alt".into()],
+        };
+        assert_eq!(format_hotkey(&cfg), "Cmd+Shift+Ctrl+Opt+F5");
+    }
+
+    // --- config persistence roundtrip ---
+
+    #[test]
+    fn config_save_and_load_roundtrip() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cfg = Config {
+            hotkey: HotkeyConfig { key: "f1".into(), modifiers: vec!["ctrl".into(), "alt".into()] },
+            terminal: TerminalConfig { app: "Alacritty".into() },
+            history: HistoryConfig { max_entries: 500 },
+        };
+        cfg.save(tmp.path()).unwrap();
+        let loaded = Config::load(tmp.path());
+        assert_eq!(loaded.hotkey.key, "f1");
+        assert_eq!(loaded.hotkey.modifiers, vec!["ctrl", "alt"]);
+        assert_eq!(loaded.terminal.app, "Alacritty");
+        assert_eq!(loaded.history.max_entries, 500);
+    }
+
+    #[test]
+    fn config_load_missing_file_returns_defaults() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cfg = Config::load(tmp.path());
+        assert_eq!(cfg.hotkey.key, "v");
+        assert_eq!(cfg.hotkey.modifiers, vec!["cmd", "shift"]);
+        assert_eq!(cfg.terminal.app, "auto");
+    }
+
+    #[test]
+    fn full_hotkey_config_to_bitmask_roundtrip() {
+        // The default Cmd+Shift+V config should produce a mask that,
+        // when combined with the correct keycode, matches a simulated event.
+        let cfg = HotkeyConfig::default();
+        let keycode = keycode_for(&cfg.key).unwrap();
+        let mask = modifiers_mask(&cfg.modifiers);
+
+        assert_eq!(keycode, 0x09); // 'v'
+        assert_eq!(mask, (1 << 20) | (1 << 17)); // cmd | shift
+        assert_eq!(format_hotkey(&cfg), "Cmd+Shift+V");
+    }
 }
