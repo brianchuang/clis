@@ -11,7 +11,9 @@ use learn::parse::review::{parse_answered_reviews, parse_graded_items, resolve_c
 use learn::schedule::{next_interval_days, update_mastery};
 use learn::select::get_due_concepts;
 use learn::types::ReviewItem;
-use learn::write::frontmatter::{initialize_system_fields, write_system_frontmatter};
+use learn::write::frontmatter::{
+    initialize_system_fields, write_system_frontmatter, write_user_frontmatter,
+};
 use learn::write::review_session::write_review_session;
 
 #[derive(Parser)]
@@ -276,6 +278,95 @@ fn main() {
                         .collect()
                 };
 
+                if apply {
+                    // Read JSON suggestions from stdin and apply to frontmatter.
+                    // Expected format: [{"file": "path", "term": "...", "domain": "...", "tags": ["..."]}]
+                    let input = {
+                        use std::io::Read;
+                        let mut buf = String::new();
+                        std::io::stdin()
+                            .read_to_string(&mut buf)
+                            .unwrap_or_else(|e| {
+                                eprintln!("Error reading stdin: {e}");
+                                process::exit(1);
+                            });
+                        buf
+                    };
+
+                    let suggestions: Vec<serde_json::Value> = serde_json::from_str(&input)
+                        .unwrap_or_else(|e| {
+                            eprintln!("Invalid JSON input: {e}");
+                            process::exit(1);
+                        });
+
+                    let mut applied = 0u32;
+                    let mut failed = 0u32;
+
+                    for suggestion in &suggestions {
+                        let file_str = match suggestion["file"].as_str() {
+                            Some(f) => f,
+                            None => {
+                                eprintln!("  Skipping entry: missing \"file\" field");
+                                failed += 1;
+                                continue;
+                            }
+                        };
+
+                        let file_path = PathBuf::from(file_str);
+                        // Resolve relative paths against vault root
+                        let file_path = if file_path.is_relative() {
+                            vault_root.join(&file_path)
+                        } else {
+                            file_path
+                        };
+
+                        if !file_path.exists() {
+                            eprintln!("  File not found: {}", file_path.display());
+                            failed += 1;
+                            continue;
+                        }
+
+                        let mut updates: Vec<(&str, serde_yaml::Value)> = Vec::new();
+
+                        if let Some(term) = suggestion["term"].as_str() {
+                            updates.push(("term", serde_yaml::Value::String(term.to_string())));
+                        }
+                        if let Some(domain) = suggestion["domain"].as_str() {
+                            updates.push(("domain", serde_yaml::Value::String(domain.to_string())));
+                        }
+                        if let Some(tags) = suggestion["tags"].as_array() {
+                            let tag_values: Vec<serde_yaml::Value> = tags
+                                .iter()
+                                .filter_map(|t| t.as_str())
+                                .map(|t| serde_yaml::Value::String(t.to_string()))
+                                .collect();
+                            if !tag_values.is_empty() {
+                                updates.push(("tags", serde_yaml::Value::Sequence(tag_values)));
+                            }
+                        }
+
+                        if updates.is_empty() {
+                            continue;
+                        }
+
+                        match write_user_frontmatter(&file_path, &updates) {
+                            Ok(_) => {
+                                let display =
+                                    file_path.strip_prefix(&vault_root).unwrap_or(&file_path);
+                                println!("  Updated: {}", display.display());
+                                applied += 1;
+                            }
+                            Err(e) => {
+                                eprintln!("  Failed to update {}: {e}", file_path.display());
+                                failed += 1;
+                            }
+                        }
+                    }
+
+                    println!("Applied: {applied}, failed: {failed}");
+                    return;
+                }
+
                 if files.is_empty() {
                     println!("No notes to refine.");
                     return;
@@ -291,9 +382,6 @@ fn main() {
                     } else {
                         println!("  {}", f.display());
                     }
-                }
-                if apply {
-                    println!("\n--apply requires AI-powered suggestions. Run via Claude Code.");
                 }
             }
         },

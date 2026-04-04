@@ -272,6 +272,167 @@ Next review:
 }
 
 #[test]
+fn refine_apply_writes_user_frontmatter() {
+    let dir = TempDir::new().unwrap();
+    learn_bin()
+        .args(["init", "--vault", dir.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+
+    // Create a bare concept note (no user fields)
+    fs::write(
+        dir.path().join("Concepts/Token Bucket.md"),
+        "A token bucket controls request rate.\n",
+    )
+    .unwrap();
+
+    let suggestions = serde_json::json!([{
+        "file": "Concepts/Token Bucket.md",
+        "term": "Token Bucket",
+        "domain": "Systems",
+        "tags": ["rate-limiting", "networking"]
+    }]);
+
+    let output = learn_bin()
+        .args([
+            "concept",
+            "refine",
+            "--apply",
+            "--vault",
+            dir.path().to_str().unwrap(),
+        ])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .and_then(|mut child| {
+            use std::io::Write;
+            child
+                .stdin
+                .take()
+                .unwrap()
+                .write_all(suggestions.to_string().as_bytes())
+                .unwrap();
+            child.wait_with_output()
+        })
+        .unwrap();
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(stdout.contains("Applied: 1"));
+
+    // Verify frontmatter was written
+    let content = fs::read_to_string(dir.path().join("Concepts/Token Bucket.md")).unwrap();
+    assert!(content.contains("term: Token Bucket"));
+    assert!(content.contains("domain: Systems"));
+    assert!(content.contains("rate-limiting"));
+    assert!(content.contains("networking"));
+    // Body should be preserved
+    assert!(content.contains("A token bucket controls request rate."));
+}
+
+#[test]
+fn refine_apply_skips_system_fields() {
+    let dir = TempDir::new().unwrap();
+    learn_bin()
+        .args(["init", "--vault", dir.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+
+    fs::write(
+        dir.path().join("Concepts/Test.md"),
+        "---\n_mastery: 0.8\n---\nNotes.\n",
+    )
+    .unwrap();
+
+    // Try to sneak a system field through --apply
+    let suggestions = serde_json::json!([{
+        "file": "Concepts/Test.md",
+        "term": "Test Concept",
+        "_mastery": 0.0
+    }]);
+
+    let output = learn_bin()
+        .args([
+            "concept",
+            "refine",
+            "--apply",
+            "--vault",
+            dir.path().to_str().unwrap(),
+        ])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .and_then(|mut child| {
+            use std::io::Write;
+            child
+                .stdin
+                .take()
+                .unwrap()
+                .write_all(suggestions.to_string().as_bytes())
+                .unwrap();
+            child.wait_with_output()
+        })
+        .unwrap();
+
+    assert!(output.status.success());
+
+    let content = fs::read_to_string(dir.path().join("Concepts/Test.md")).unwrap();
+    assert!(content.contains("Test Concept"));
+    // _mastery should NOT be overwritten
+    assert!(content.contains("0.8"));
+}
+
+#[test]
+fn refine_apply_handles_missing_file() {
+    let dir = TempDir::new().unwrap();
+    learn_bin()
+        .args(["init", "--vault", dir.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+
+    let suggestions = serde_json::json!([{
+        "file": "Concepts/Nonexistent.md",
+        "term": "Ghost"
+    }]);
+
+    let output = learn_bin()
+        .args([
+            "concept",
+            "refine",
+            "--apply",
+            "--vault",
+            dir.path().to_str().unwrap(),
+        ])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .and_then(|mut child| {
+            use std::io::Write;
+            child
+                .stdin
+                .take()
+                .unwrap()
+                .write_all(suggestions.to_string().as_bytes())
+                .unwrap();
+            child.wait_with_output()
+        })
+        .unwrap();
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success());
+    assert!(stdout.contains("Applied: 0, failed: 1"));
+    assert!(stderr.contains("File not found"));
+}
+
+#[test]
 fn review_grade_auto_skips_already_graded() {
     let dir = TempDir::new().unwrap();
     learn_bin()
