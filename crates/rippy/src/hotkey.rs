@@ -122,7 +122,13 @@ struct HotkeyContext {
 
 // Mask to isolate the modifier keys we care about (cmd, shift, ctrl, alt).
 // Ignores device-dependent flags and caps lock.
-const MODIFIER_FILTER: u64 = (1 << 20) | (1 << 17) | (1 << 18) | (1 << 19);
+pub const MODIFIER_FILTER: u64 = (1 << 20) | (1 << 17) | (1 << 18) | (1 << 19);
+
+/// Pure function: does the incoming key event match the configured hotkey?
+/// `raw_flags` are the raw CGEventFlags — this function applies MODIFIER_FILTER internally.
+pub fn matches_hotkey(keycode: u16, raw_flags: u64, expected_keycode: u16, expected_modifiers: u64) -> bool {
+    keycode == expected_keycode && (raw_flags & MODIFIER_FILTER) == expected_modifiers
+}
 
 unsafe extern "C" fn hotkey_callback(
     _proxy: CGEventTapProxy,
@@ -145,13 +151,90 @@ unsafe extern "C" fn hotkey_callback(
     }
 
     let keycode = CGEventGetIntegerValueField(event, K_CG_KEYBOARD_EVENT_KEYCODE) as u16;
-    let flags = CGEventGetFlags(event) & MODIFIER_FILTER;
+    let flags = CGEventGetFlags(event);
 
-    if keycode == ctx.keycode && flags == ctx.modifier_mask {
+    if matches_hotkey(keycode, flags, ctx.keycode, ctx.modifier_mask) {
         terminal::launch_tui(&ctx.terminal_app);
     }
 
     event
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config;
+
+    #[test]
+    fn matches_exact_hotkey() {
+        // Cmd+Shift+V: modifiers = cmd(1<<20) | shift(1<<17), keycode for 'v' = 0x09
+        let cmd_shift = (1u64 << 20) | (1 << 17);
+        assert!(matches_hotkey(0x09, cmd_shift, 0x09, cmd_shift));
+    }
+
+    #[test]
+    fn rejects_wrong_keycode() {
+        let cmd_shift = (1u64 << 20) | (1 << 17);
+        // keycode 0x08 = 'c', not 'v'
+        assert!(!matches_hotkey(0x08, cmd_shift, 0x09, cmd_shift));
+    }
+
+    #[test]
+    fn rejects_wrong_modifiers() {
+        let cmd_shift = (1u64 << 20) | (1 << 17);
+        let cmd_only = 1u64 << 20;
+        assert!(!matches_hotkey(0x09, cmd_only, 0x09, cmd_shift));
+    }
+
+    #[test]
+    fn ignores_extra_flags_outside_modifier_filter() {
+        let cmd_shift = (1u64 << 20) | (1 << 17);
+        // Simulate raw flags with extra device-dependent bits set
+        let raw_flags = cmd_shift | (1 << 24) | (1 << 8);
+        assert!(matches_hotkey(0x09, raw_flags, 0x09, cmd_shift));
+    }
+
+    #[test]
+    fn roundtrip_config_to_match() {
+        // Simulate the full flow: config → keycode/mask → matches_hotkey
+        let cfg = config::HotkeyConfig {
+            key: "v".into(),
+            modifiers: vec!["cmd".into(), "shift".into()],
+        };
+        let expected_keycode = config::keycode_for(&cfg.key).unwrap();
+        let expected_mask = config::modifiers_mask(&cfg.modifiers);
+
+        // Simulated event: macOS sends raw flags with extra bits
+        let raw_flags = expected_mask | (1 << 24);
+        assert!(matches_hotkey(expected_keycode, raw_flags, expected_keycode, expected_mask));
+
+        // Wrong key pressed
+        let wrong_keycode = config::keycode_for("c").unwrap();
+        assert!(!matches_hotkey(wrong_keycode, raw_flags, expected_keycode, expected_mask));
+    }
+
+    #[test]
+    fn ctrl_alt_f5_hotkey() {
+        let ctrl_alt = (1u64 << 18) | (1 << 19);
+        let f5 = 0x60u16;
+        assert!(matches_hotkey(f5, ctrl_alt, f5, ctrl_alt));
+        assert!(!matches_hotkey(f5, 1u64 << 18, f5, ctrl_alt)); // missing alt
+    }
+
+    #[test]
+    fn no_modifiers_match() {
+        // A hotkey with no modifiers: just the bare key
+        assert!(matches_hotkey(0x31, 0, 0x31, 0)); // space with no modifiers
+    }
+
+    #[test]
+    fn modifier_filter_masks_caps_lock_and_device_bits() {
+        // MODIFIER_FILTER should only keep bits 17-20
+        assert_eq!(MODIFIER_FILTER, (1 << 17) | (1 << 18) | (1 << 19) | (1 << 20));
+        // Caps lock (bit 16) and other low/high bits should be masked out
+        assert_eq!(MODIFIER_FILTER & (1 << 16), 0);
+        assert_eq!(MODIFIER_FILTER & (1 << 21), 0);
+    }
 }
 
 /// Install the global hotkey and run the event loop.
