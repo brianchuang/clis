@@ -14,7 +14,11 @@ use learn::write::frontmatter::{initialize_system_fields, write_system_frontmatt
 use learn::write::review_session::write_review_session;
 
 #[derive(Parser)]
-#[command(name = "learn", version, about = "Agent-assisted concept learning workflows for Obsidian vaults")]
+#[command(
+    name = "learn",
+    version,
+    about = "Agent-assisted concept learning workflows for Obsidian vaults"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -109,7 +113,11 @@ fn main() {
     match cli.command {
         Commands::Init { vault, force } => {
             let vault_path = vault
-                .map(|v| PathBuf::from(&v).canonicalize().unwrap_or_else(|_| PathBuf::from(&v)))
+                .map(|v| {
+                    PathBuf::from(&v)
+                        .canonicalize()
+                        .unwrap_or_else(|_| PathBuf::from(&v))
+                })
                 .unwrap_or_else(|| std::env::current_dir().unwrap());
 
             let dirs = [
@@ -163,11 +171,10 @@ fn main() {
             let vault_root = get_vault(vault.as_deref());
             let _config = load_vault_config(&vault_root);
             let today = today();
-            let due = get_due_concepts(&vault_root, None, None, Some(&today))
-                .unwrap_or_else(|e| {
-                    eprintln!("Error: {e}");
-                    process::exit(1);
-                });
+            let due = get_due_concepts(&vault_root, None, None, Some(&today)).unwrap_or_else(|e| {
+                eprintln!("Error: {e}");
+                process::exit(1);
+            });
 
             println!("\nLearning Status — {today}");
             println!("Due for review: {} concept(s)\n", due.len());
@@ -271,9 +278,7 @@ fn main() {
                     }
                 }
                 if apply {
-                    println!(
-                        "\n--apply requires AI-powered suggestions. Run via Claude Code."
-                    );
+                    println!("\n--apply requires AI-powered suggestions. Run via Claude Code.");
                 }
             }
         },
@@ -290,9 +295,7 @@ fn main() {
                 let today = today();
 
                 let count = count.unwrap_or(config.default_review_count);
-                let domain_filter = domain
-                    .as_deref()
-                    .or(config.default_domain.as_deref());
+                let domain_filter = domain.as_deref().or(config.default_domain.as_deref());
 
                 // Initialize system fields before querying due concepts
                 let concepts_dir = vault_root.join("Concepts");
@@ -303,23 +306,24 @@ fn main() {
                     }
                 }
 
-                let due = get_due_concepts(
-                    &vault_root,
-                    domain_filter,
-                    Some(count),
-                    Some(&today),
-                )
-                .unwrap_or_else(|e| {
-                    eprintln!("Error: {e}");
-                    process::exit(1);
-                });
+                let due = get_due_concepts(&vault_root, domain_filter, Some(count), Some(&today))
+                    .unwrap_or_else(|e| {
+                        eprintln!("Error: {e}");
+                        process::exit(1);
+                    });
 
                 if due.is_empty() {
                     println!("No concepts due for review today.");
                     return;
                 }
 
-                let prompt_types = ["definition", "decision", "contrast", "context", "consequence"];
+                let prompt_types = [
+                    "definition",
+                    "decision",
+                    "contrast",
+                    "context",
+                    "consequence",
+                ];
                 let items: Vec<ReviewItem> = due
                     .iter()
                     .map(|concept| {
@@ -333,12 +337,8 @@ fn main() {
                                     .unwrap_or(true)
                             })
                             .collect();
-                        let prompt_type =
-                            available[rand::random::<usize>() % available.len()];
-                        let term = concept
-                            .term
-                            .as_deref()
-                            .unwrap_or(&concept.filename);
+                        let prompt_type = available[rand::random::<usize>() % available.len()];
+                        let term = concept.term.as_deref().unwrap_or(&concept.filename);
 
                         ReviewItem {
                             concept_path: concept.path.clone(),
@@ -349,12 +349,11 @@ fn main() {
                     })
                     .collect();
 
-                let file_path =
-                    write_review_session(&vault_root, &items, &today, force)
-                        .unwrap_or_else(|e| {
-                            eprintln!("Error: {e}");
-                            process::exit(1);
-                        });
+                let file_path = write_review_session(&vault_root, &items, &today, force)
+                    .unwrap_or_else(|e| {
+                        eprintln!("Error: {e}");
+                        process::exit(1);
+                    });
 
                 // Update _last_prompt_type for each concept
                 for item in &items {
@@ -402,50 +401,36 @@ fn main() {
                 let mut failed = 0u32;
 
                 for item in &graded {
-                    let concept_path =
-                        match resolve_concept_path(&vault_root, &item.term) {
-                            Some(p) => p,
-                            None => {
-                                eprintln!(
-                                    "  Could not find concept note for: {}",
-                                    item.term
-                                );
-                                failed += 1;
-                                continue;
-                            }
-                        };
+                    let concept_path = match resolve_concept_path(&vault_root, &item.term) {
+                        Some(p) => p,
+                        None => {
+                            eprintln!("  Could not find concept note for: {}", item.term);
+                            failed += 1;
+                            continue;
+                        }
+                    };
 
                     let concept_file = Path::new(&concept_path);
                     let concept = parse_concept(concept_file);
                     let interval = next_interval_days(item.score, concept.current_interval);
                     let new_mastery = update_mastery(concept.mastery, item.score);
 
-                    let next_date = chrono::NaiveDate::parse_from_str(&today, "%Y-%m-%d")
-                        .unwrap()
+                    let next_date = chrono::NaiveDate::parse_from_str(&today, "%Y-%m-%d").unwrap()
                         + chrono::Duration::days(interval as i64);
                     let next_review = next_date.format("%Y-%m-%d").to_string();
 
                     match write_system_frontmatter(
                         concept_file,
                         &[
-                            (
-                                "_last_reviewed",
-                                serde_yaml::Value::String(today.clone()),
-                            ),
-                            (
-                                "_next_review",
-                                serde_yaml::Value::String(next_review),
-                            ),
+                            ("_last_reviewed", serde_yaml::Value::String(today.clone())),
+                            ("_next_review", serde_yaml::Value::String(next_review)),
                             (
                                 "_review_count",
                                 serde_yaml::Value::Number(serde_yaml::Number::from(
                                     concept.review_count + 1,
                                 )),
                             ),
-                            (
-                                "_mastery",
-                                serde_yaml::to_value(new_mastery).unwrap(),
-                            ),
+                            ("_mastery", serde_yaml::to_value(new_mastery).unwrap()),
                         ],
                     ) {
                         Ok(_) => processed += 1,

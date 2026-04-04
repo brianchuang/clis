@@ -13,22 +13,28 @@ fn create_workspace_tree(root: &std::path::Path, projects: &[(&str, &[&str])]) {
 #[test]
 fn scan_finds_two_level_workspaces() {
     let tmp = TempDir::new().unwrap();
-    create_workspace_tree(tmp.path(), &[
-        ("black-pearl", &["memphis", "tokyo", "warsaw"]),
-        ("my-app", &["london", "paris"]),
-    ]);
+    create_workspace_tree(
+        tmp.path(),
+        &[
+            ("black-pearl", &["memphis", "tokyo", "warsaw"]),
+            ("my-app", &["london", "paris"]),
+        ],
+    );
 
     let workspaces = cdt::scanner::scan(tmp.path()).unwrap();
     assert_eq!(workspaces.len(), 5);
 
     let labels: Vec<String> = workspaces.iter().map(|w| w.label()).collect();
-    assert_eq!(labels, vec![
-        "black-pearl/memphis",
-        "black-pearl/tokyo",
-        "black-pearl/warsaw",
-        "my-app/london",
-        "my-app/paris",
-    ]);
+    assert_eq!(
+        labels,
+        vec![
+            "black-pearl/memphis",
+            "black-pearl/tokyo",
+            "black-pearl/warsaw",
+            "my-app/london",
+            "my-app/paris",
+        ]
+    );
 }
 
 #[test]
@@ -82,10 +88,7 @@ fn scan_nonexistent_root_errors() {
 #[test]
 fn scan_results_sorted_alphabetically() {
     let tmp = TempDir::new().unwrap();
-    create_workspace_tree(tmp.path(), &[
-        ("zebra", &["alpha"]),
-        ("alpha", &["zebra"]),
-    ]);
+    create_workspace_tree(tmp.path(), &[("zebra", &["alpha"]), ("alpha", &["zebra"])]);
 
     let workspaces = cdt::scanner::scan(tmp.path()).unwrap();
     let labels: Vec<String> = workspaces.iter().map(|w| w.label()).collect();

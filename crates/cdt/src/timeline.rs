@@ -76,7 +76,10 @@ fn worktree_creation_event(ws: &Workspace) -> Option<Event> {
         timestamp: ts,
         workspace: ws.label(),
         kind: EventKind::WorktreeCreated,
-        message: format!("created worktree (branch: {})", ws.branch.as_deref().unwrap_or("unknown")),
+        message: format!(
+            "created worktree (branch: {})",
+            ws.branch.as_deref().unwrap_or("unknown")
+        ),
     })
 }
 
@@ -113,11 +116,9 @@ pub fn format_timestamp(ts: u64) -> String {
         let hours = (secs_today / 3600) % 24;
         let minutes = (secs_today % 3600) / 60;
         // Adjust for local timezone offset
-        format_local_time(ts)
-            .unwrap_or_else(|| format!("{hours:02}:{minutes:02}"))
+        format_local_time(ts).unwrap_or_else(|| format!("{hours:02}:{minutes:02}"))
     } else {
-        format_local_datetime(ts)
-            .unwrap_or_else(|| crate::scanner::format_age(age))
+        format_local_datetime(ts).unwrap_or_else(|| crate::scanner::format_age(age))
     }
 }
 
@@ -154,7 +155,10 @@ pub fn format_event(event: &Event) -> String {
         EventKind::Commit => "●",
         EventKind::WorktreeCreated => "◆",
     };
-    format!("  {:<14} {:<24} {} {}", time, event.workspace, icon, event.message)
+    format!(
+        "  {:<14} {:<24} {} {}",
+        time, event.workspace, icon, event.message
+    )
 }
 
 /// Format the full timeline for display.
@@ -228,7 +232,12 @@ mod tests {
 
     #[test]
     fn format_event_commit() {
-        let event = make_event(1700000000, "my-app/london", EventKind::Commit, "Add JWT refresh");
+        let event = make_event(
+            1700000000,
+            "my-app/london",
+            EventKind::Commit,
+            "Add JWT refresh",
+        );
         let line = format_event(&event);
         assert!(line.contains("my-app/london"));
         assert!(line.contains("●"));
@@ -237,7 +246,12 @@ mod tests {
 
     #[test]
     fn format_event_worktree_created() {
-        let event = make_event(1700000000, "my-app/berlin", EventKind::WorktreeCreated, "created worktree (branch: fix-typo)");
+        let event = make_event(
+            1700000000,
+            "my-app/berlin",
+            EventKind::WorktreeCreated,
+            "created worktree (branch: fix-typo)",
+        );
         let line = format_event(&event);
         assert!(line.contains("my-app/berlin"));
         assert!(line.contains("◆"));
@@ -265,9 +279,7 @@ mod tests {
 
     #[test]
     fn format_timeline_limit_exceeds_count() {
-        let events = vec![
-            make_event(2000, "proj/a", EventKind::Commit, "only"),
-        ];
+        let events = vec![make_event(2000, "proj/a", EventKind::Commit, "only")];
 
         let output = format_timeline(&events, 100);
         let lines: Vec<&str> = output.lines().collect();

@@ -58,7 +58,10 @@ fn cache_operations() {
 
     // --- invalidates when workspace added ---
     fs::create_dir_all(root.join("proj").join("town")).unwrap();
-    assert!(cache::load(root).is_none(), "should invalidate when dir added");
+    assert!(
+        cache::load(root).is_none(),
+        "should invalidate when dir added"
+    );
 
     // Remove the extra dir and re-save for next sub-test
     fs::remove_dir_all(root.join("proj").join("town")).unwrap();
@@ -70,15 +73,15 @@ fn cache_operations() {
     // --- invalidates when workspace removed ---
     // Add a second workspace, save, then remove it
     create_workspace_tree(root, &[("proj", &["town"])]);
-    let workspaces2 = vec![
-        make_ws("proj", "city", root),
-        make_ws("proj", "town", root),
-    ];
+    let workspaces2 = vec![make_ws("proj", "city", root), make_ws("proj", "town", root)];
     cache::save(root, &workspaces2);
     assert!(cache::load(root).is_some());
 
     fs::remove_dir_all(root.join("proj").join("town")).unwrap();
-    assert!(cache::load(root).is_none(), "should invalidate when dir removed");
+    assert!(
+        cache::load(root).is_none(),
+        "should invalidate when dir removed"
+    );
 
     // --- clear removes cache ---
     cache::save(root, &workspaces);

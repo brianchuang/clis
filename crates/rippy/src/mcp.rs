@@ -1,8 +1,7 @@
 use rmcp::{
-    ServerHandler, ServiceExt,
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
     model::{ServerCapabilities, ServerInfo},
-    tool_handler, tool_router,
+    tool_handler, tool_router, ServerHandler, ServiceExt,
 };
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -58,7 +57,9 @@ impl McpServer {
         Parameters(ListParams { count }): Parameters<ListParams>,
     ) -> Result<String, String> {
         let store = self.open_store()?;
-        let entries = store.recent(count.unwrap_or(20)).map_err(|e| e.to_string())?;
+        let entries = store
+            .recent(count.unwrap_or(20))
+            .map_err(|e| e.to_string())?;
         serde_json::to_string_pretty(&entries).map_err(|e| e.to_string())
     }
 
@@ -69,7 +70,9 @@ impl McpServer {
         Parameters(SearchParams { query, count }): Parameters<SearchParams>,
     ) -> Result<String, String> {
         let store = self.open_store()?;
-        let entries = store.search(&query, count.unwrap_or(20)).map_err(|e| e.to_string())?;
+        let entries = store
+            .search(&query, count.unwrap_or(20))
+            .map_err(|e| e.to_string())?;
         serde_json::to_string_pretty(&entries).map_err(|e| e.to_string())
     }
 
@@ -80,7 +83,9 @@ impl McpServer {
         Parameters(CopyParams { id }): Parameters<CopyParams>,
     ) -> Result<String, String> {
         let store = self.open_store()?;
-        let entry = store.get(id).map_err(|e| e.to_string())?
+        let entry = store
+            .get(id)
+            .map_err(|e| e.to_string())?
             .ok_or_else(|| format!("Entry {id} not found"))?;
         crate::clipboard::set_clipboard(&entry.content);
         Ok(format!("Copied entry {id} to clipboard"))

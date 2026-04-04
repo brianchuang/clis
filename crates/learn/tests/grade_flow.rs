@@ -82,9 +82,7 @@ A token bucket controls request rate.
             ),
             (
                 "_review_count",
-                serde_yaml::Value::Number(serde_yaml::Number::from(
-                    concept.review_count + 1,
-                )),
+                serde_yaml::Value::Number(serde_yaml::Number::from(concept.review_count + 1)),
             ),
             ("_mastery", serde_yaml::to_value(new_mastery).unwrap()),
         ],

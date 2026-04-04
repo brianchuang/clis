@@ -17,7 +17,10 @@ pub fn extract_wikilinks(text: &str) -> Vec<String> {
 fn parse_frontmatter(raw: &str) -> (serde_yaml::Value, String) {
     let trimmed = raw.trim_start();
     if !trimmed.starts_with("---") {
-        return (serde_yaml::Value::Mapping(Default::default()), raw.to_string());
+        return (
+            serde_yaml::Value::Mapping(Default::default()),
+            raw.to_string(),
+        );
     }
 
     // Find the closing ---
@@ -37,11 +40,14 @@ fn parse_frontmatter(raw: &str) -> (serde_yaml::Value, String) {
             String::new()
         };
 
-        let data: serde_yaml::Value =
-            serde_yaml::from_str(yaml_str).unwrap_or(serde_yaml::Value::Mapping(Default::default()));
+        let data: serde_yaml::Value = serde_yaml::from_str(yaml_str)
+            .unwrap_or(serde_yaml::Value::Mapping(Default::default()));
         (data, body)
     } else {
-        (serde_yaml::Value::Mapping(Default::default()), raw.to_string())
+        (
+            serde_yaml::Value::Mapping(Default::default()),
+            raw.to_string(),
+        )
     }
 }
 
@@ -64,7 +70,11 @@ fn get_tags(data: &serde_yaml::Value, key: &str) -> Option<Vec<String>> {
                 .iter()
                 .filter_map(|item| item.as_str().map(String::from))
                 .collect();
-            if tags.is_empty() { None } else { Some(tags) }
+            if tags.is_empty() {
+                None
+            } else {
+                Some(tags)
+            }
         } else {
             None
         }
@@ -97,10 +107,8 @@ pub fn parse_concept(file_path: &Path) -> Concept {
 
     let last_reviewed = get_str(&data, "_last_reviewed");
     let next_review = get_str(&data, "_next_review");
-    let current_interval = compute_current_interval(
-        last_reviewed.as_deref(),
-        next_review.as_deref(),
-    );
+    let current_interval =
+        compute_current_interval(last_reviewed.as_deref(), next_review.as_deref());
 
     Concept {
         path: file_path.to_string_lossy().to_string(),
@@ -175,7 +183,12 @@ See also [[Leaky Bucket]].
         assert_eq!(c.domain.as_deref(), Some("Systems"));
         assert_eq!(
             c.tags.as_deref(),
-            Some(&["rate-limiting".to_string(), "distributed-systems".to_string()][..])
+            Some(
+                &[
+                    "rate-limiting".to_string(),
+                    "distributed-systems".to_string()
+                ][..]
+            )
         );
         assert_eq!(c.mastery, 0.4);
         assert_eq!(c.review_count, 3);
