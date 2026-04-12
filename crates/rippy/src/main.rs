@@ -2,9 +2,11 @@ mod clipboard;
 mod config;
 mod db;
 mod highlight;
+#[cfg(target_os = "macos")]
 mod hotkey;
 mod mcp;
 pub(crate) mod tag;
+#[cfg(target_os = "macos")]
 mod terminal;
 mod tui;
 mod watcher;
@@ -15,7 +17,7 @@ use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
 #[derive(Parser)]
-#[command(name = "rippy", about = "macOS clipboard history manager")]
+#[command(name = "rippy", about = "Clipboard history manager")]
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
@@ -57,16 +59,20 @@ enum Commands {
     Save,
     /// Clear all clipboard history
     Clear,
-    /// Install as a launchd service for 24/7 clipboard monitoring
+    /// Install as a launchd service for 24/7 clipboard monitoring (macOS only)
+    #[cfg(target_os = "macos")]
     Install,
-    /// Uninstall the launchd service
+    /// Uninstall the launchd service (macOS only)
+    #[cfg(target_os = "macos")]
     Uninstall,
-    /// Configure the global hotkey
+    /// Configure the global hotkey (macOS only)
+    #[cfg(target_os = "macos")]
     Hotkey {
         #[command(subcommand)]
         action: HotkeyAction,
     },
-    /// Set up a global keyboard shortcut via macOS Quick Actions (no permissions needed)
+    /// Set up a global keyboard shortcut via macOS Quick Actions (macOS only)
+    #[cfg(target_os = "macos")]
     Shortcut {
         #[command(subcommand)]
         action: ShortcutAction,
@@ -80,11 +86,11 @@ enum Commands {
     InitShell,
     /// Start MCP server (stdio transport) for AI assistant integration
     Mcp,
-    /// Open rippy TUI in configured terminal (used by Quick Action)
+    /// Open rippy TUI in configured terminal (used by Quick Action, macOS only)
+    #[cfg(target_os = "macos")]
     #[command(hide = true)]
     LaunchTui,
-    /// Watch clipboard (used internally by launchd)
-    #[command(hide = true)]
+    /// Watch clipboard in the foreground
     Watch,
 }
 
@@ -118,6 +124,7 @@ enum SnippetAction {
     },
 }
 
+#[cfg(target_os = "macos")]
 #[derive(Subcommand)]
 enum ShortcutAction {
     /// Create a macOS Quick Action with a global keyboard shortcut
@@ -126,6 +133,7 @@ enum ShortcutAction {
     Uninstall,
 }
 
+#[cfg(target_os = "macos")]
 #[derive(Subcommand)]
 enum HotkeyAction {
     /// Show current hotkey configuration
@@ -182,16 +190,21 @@ fn run() -> Result {
         Some(Commands::Get { id }) => cmd_get(id)?,
         Some(Commands::Save) => println!("{}", cmd_save()?),
         Some(Commands::Clear) => println!("{}", cmd_clear()?),
+        #[cfg(target_os = "macos")]
         Some(Commands::Hotkey { action }) => cmd_hotkey(action)?,
+        #[cfg(target_os = "macos")]
         Some(Commands::Shortcut { action }) => match action {
             ShortcutAction::Install => println!("{}", cmd_shortcut_install()?),
             ShortcutAction::Uninstall => println!("{}", cmd_shortcut_uninstall()?),
         },
         Some(Commands::Snippet { action }) => cmd_snippet(action)?,
         Some(Commands::InitShell) => print!("{}", init_shell_output()),
+        #[cfg(target_os = "macos")]
         Some(Commands::Install) => println!("{}", cmd_install()?),
+        #[cfg(target_os = "macos")]
         Some(Commands::Uninstall) => println!("{}", cmd_uninstall()?),
         Some(Commands::Mcp) => tokio::runtime::Runtime::new()?.block_on(mcp::run(db_path()))?,
+        #[cfg(target_os = "macos")]
         Some(Commands::LaunchTui) => {
             let cfg = config::Config::load(&data_dir());
             terminal::launch_tui(&cfg.terminal.app);
@@ -324,6 +337,7 @@ fn append_shell_alias() -> Option<String> {
     )
 }
 
+#[cfg(target_os = "macos")]
 fn cmd_install() -> Result<String> {
     let plist_path = plist_path();
     let rippy_bin = std::env::current_exe()?
@@ -389,6 +403,7 @@ fn cmd_install() -> Result<String> {
     Ok(msg)
 }
 
+#[cfg(target_os = "macos")]
 fn cmd_uninstall() -> Result<String> {
     let plist_path = plist_path();
 
@@ -404,16 +419,18 @@ fn cmd_uninstall() -> Result<String> {
     Ok("Uninstalled launchd service.".to_string())
 }
 
-// --- Quick Action (macOS Services) shortcut ---
-
+// --- macOS-only: Quick Action, workflow, hotkey, launchd ---
+#[cfg(target_os = "macos")]
 const WORKFLOW_NAME: &str = "Launch Rippy";
 
+#[cfg(target_os = "macos")]
 fn workflow_dir() -> PathBuf {
     dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("~"))
         .join("Library/Services/Launch Rippy.workflow")
 }
 
+#[cfg(target_os = "macos")]
 /// Info.plist for the Quick Action .workflow bundle.
 /// Registers "Launch Rippy" as a Service that accepts no required input,
 /// making it available for a global keyboard shortcut.
@@ -444,6 +461,7 @@ const WORKFLOW_INFO_PLIST: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 </dict>
 </plist>"#;
 
+#[cfg(target_os = "macos")]
 /// Build the document.wflow plist for an Automator Quick Action that runs
 /// the given shell command. Pure function for testability.
 fn workflow_document(shell_command: &str) -> String {
@@ -600,6 +618,7 @@ fn workflow_document(shell_command: &str) -> String {
     )
 }
 
+#[cfg(target_os = "macos")]
 /// Create the .workflow bundle at `wf_dir` with the given shell command.
 /// Returns the path to document.wflow. Pure filesystem operation — no
 /// system registration.
@@ -617,12 +636,14 @@ fn create_workflow_bundle_at(
     Ok(())
 }
 
+#[cfg(target_os = "macos")]
 /// Service identifier used by pbs (pasteboard server) to reference this
 /// Quick Action. Format: `(null) - <menu-item-name> - <message>`.
 fn pbs_service_key() -> String {
     format!("(null) - {WORKFLOW_NAME} - runWorkflowAsService")
 }
 
+#[cfg(target_os = "macos")]
 fn cmd_shortcut_install() -> Result<String> {
     let rippy_bin = std::env::current_exe()?
         .canonicalize()?
@@ -680,6 +701,7 @@ fn cmd_shortcut_install() -> Result<String> {
     Ok(msg)
 }
 
+#[cfg(target_os = "macos")]
 fn cmd_shortcut_uninstall() -> Result<String> {
     let wf_dir = workflow_dir();
 
@@ -701,6 +723,7 @@ fn cmd_shortcut_uninstall() -> Result<String> {
     ))
 }
 
+#[cfg(target_os = "macos")]
 fn cmd_hotkey(action: HotkeyAction) -> Result {
     let dir = data_dir();
     match action {
@@ -772,8 +795,9 @@ fn cmd_watch() -> Result {
     use std::sync::Arc;
 
     let running = Arc::new(AtomicBool::new(true));
-    signal_hook::flag::register(signal_hook::consts::SIGTERM, running.clone()).ok();
     signal_hook::flag::register(signal_hook::consts::SIGINT, running.clone()).ok();
+    #[cfg(unix)]
+    signal_hook::flag::register(signal_hook::consts::SIGTERM, running.clone()).ok();
 
     let cfg = config::Config::load(&data_dir());
     let w = watcher::Watcher::spawn(
@@ -782,29 +806,37 @@ fn cmd_watch() -> Result {
         cfg.history.auto_expire_seconds,
     );
 
-    // Always attempt to install the hotkey — CGEventTapCreate is the real
-    // permission check.  If the tap fails, install_and_run prints an error
-    // and returns immediately, so we fall back to clipboard-only watching.
-    if !hotkey::check_listen_permission(false) {
-        eprintln!("Input Monitoring pre-check returned false — attempting event tap anyway...");
-    }
-    hotkey::install_and_run(&cfg, running.clone());
-
-    // If install_and_run returned early (tap creation failed), fall back to
-    // clipboard watching only.
-    if running.load(Ordering::Relaxed) {
-        eprintln!(
-            "Hotkey disabled: could not create event tap. Grant Input Monitoring permission to Rippy."
-        );
-        while running.load(Ordering::Relaxed) {
-            std::thread::sleep(std::time::Duration::from_secs(1));
+    #[cfg(target_os = "macos")]
+    {
+        // Always attempt to install the hotkey — CGEventTapCreate is the real
+        // permission check.  If the tap fails, install_and_run prints an error
+        // and returns immediately, so we fall back to clipboard-only watching.
+        if !hotkey::check_listen_permission(false) {
+            eprintln!(
+                "Input Monitoring pre-check returned false — attempting event tap anyway..."
+            );
         }
+        hotkey::install_and_run(&cfg, running.clone());
+
+        // If install_and_run returned early (tap creation failed), fall back to
+        // clipboard watching only.
+        if running.load(Ordering::Relaxed) {
+            eprintln!(
+                "Hotkey disabled: could not create event tap. Grant Input Monitoring permission to Rippy."
+            );
+        }
+    }
+
+    // Block until signaled to stop.
+    while running.load(Ordering::Relaxed) {
+        std::thread::sleep(std::time::Duration::from_secs(1));
     }
 
     w.stop();
     Ok(())
 }
 
+#[cfg(target_os = "macos")]
 fn plist_path() -> PathBuf {
     dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("~"))
@@ -916,9 +948,10 @@ mod tests {
         assert_eq!(result, "first line…");
     }
 
-    // --- Quick Action shortcut ---
+    // --- Quick Action shortcut (macOS only) ---
 
     #[test]
+    #[cfg(target_os = "macos")]
     fn workflow_document_contains_shell_command() {
         let doc = workflow_document("/usr/local/bin/rippy launch-tui");
         assert!(doc.contains("/usr/local/bin/rippy launch-tui"));
@@ -927,12 +960,14 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "macos")]
     fn workflow_document_escapes_nothing_in_simple_path() {
         let doc = workflow_document("/bin/rippy launch-tui");
         assert!(doc.contains("<string>/bin/rippy launch-tui</string>"));
     }
 
     #[test]
+    #[cfg(target_os = "macos")]
     fn workflow_info_plist_has_service_definition() {
         assert!(WORKFLOW_INFO_PLIST.contains("Launch Rippy"));
         assert!(WORKFLOW_INFO_PLIST.contains("runWorkflowAsService"));
@@ -940,6 +975,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "macos")]
     fn create_workflow_bundle_has_correct_structure() {
         let tmp = tempfile::tempdir().unwrap();
         let wf_dir = tmp.path().join("Test.workflow");
@@ -957,6 +993,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "macos")]
     fn create_workflow_bundle_overwrites_existing() {
         let tmp = tempfile::tempdir().unwrap();
         let wf_dir = tmp.path().join("Test.workflow");
@@ -970,6 +1007,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "macos")]
     fn pbs_service_key_format() {
         let key = pbs_service_key();
         assert_eq!(key, "(null) - Launch Rippy - runWorkflowAsService");
@@ -1018,6 +1056,7 @@ mod tests {
     /// The install message must tell users to grant Input Monitoring, not
     /// Accessibility — listen-only event taps require Input Monitoring.
     #[test]
+    #[cfg(target_os = "macos")]
     fn install_message_references_input_monitoring() {
         // We can't run cmd_install() in tests (it touches launchd), but we
         // can verify the static string that's appended to the message.

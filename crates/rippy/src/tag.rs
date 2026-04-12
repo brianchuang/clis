@@ -62,8 +62,18 @@ fn looks_like_path(s: &str) -> bool {
     if trimmed.starts_with('/') || trimmed.starts_with("~/") || trimmed.starts_with("./") {
         return true;
     }
-    // Contains path separators with a file extension (e.g. "src/main.rs")
-    if trimmed.contains('/') && has_file_extension(trimmed) && !trimmed.contains(' ') {
+    // Windows drive-letter paths (e.g. "C:\Users\foo" or "D:/data")
+    if trimmed.len() >= 3 {
+        let bytes = trimmed.as_bytes();
+        if bytes[0].is_ascii_alphabetic() && bytes[1] == b':' && (bytes[2] == b'\\' || bytes[2] == b'/') {
+            return true;
+        }
+    }
+    // Contains path separators with a file extension (e.g. "src/main.rs" or "src\main.rs")
+    if (trimmed.contains('/') || trimmed.contains('\\'))
+        && has_file_extension(trimmed)
+        && !trimmed.contains(' ')
+    {
         return true;
     }
     false
@@ -71,7 +81,7 @@ fn looks_like_path(s: &str) -> bool {
 
 fn has_file_extension(s: &str) -> bool {
     // Check the last path component for a dot-extension
-    let last = s.rsplit('/').next().unwrap_or(s);
+    let last = s.rsplit(|c| c == '/' || c == '\\').next().unwrap_or(s);
     if let Some(dot_pos) = last.rfind('.') {
         let ext = &last[dot_pos + 1..];
         !ext.is_empty() && ext.len() <= 10 && ext.chars().all(|c| c.is_ascii_alphanumeric())
@@ -146,6 +156,14 @@ mod tests {
         assert_eq!(detect("~/Documents/notes.md"), ContentTag::Path);
         assert_eq!(detect("./src/main.rs"), ContentTag::Path);
         assert_eq!(detect("src/components/App.tsx"), ContentTag::Path);
+    }
+
+    #[test]
+    fn windows_paths() {
+        assert_eq!(detect(r"C:\Users\foo\file.txt"), ContentTag::Path);
+        assert_eq!(detect(r"D:\projects\src\main.rs"), ContentTag::Path);
+        assert_eq!(detect("C:/Users/foo/file.txt"), ContentTag::Path);
+        assert_eq!(detect(r"src\components\App.tsx"), ContentTag::Path);
     }
 
     #[test]

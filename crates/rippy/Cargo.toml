@@ -2,11 +2,11 @@
 name = "rippy"
 version = "0.1.0"
 edition = "2021"
-description = "A macOS clipboard history manager CLI"
+description = "A cross-platform clipboard history manager CLI"
 license = "MIT"
 repository = "https://github.com/brianchuang/clis"
 homepage = "https://github.com/brianchuang/clis"
-keywords = ["clipboard", "macos", "tui", "vim"]
+keywords = ["clipboard", "tui", "vim"]
 categories = ["command-line-utilities"]
 
 [dependencies]
@@ -33,6 +33,9 @@ syntect = { version = "5", default-features = false, features = ["default-syntax
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", features = ["NSPasteboard"] }
 objc2-foundation = { version = "0.3", features = ["NSString", "NSArray"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+clipboard-win = "5"
 
 [dev-dependencies]
 tempfile = "3.27.0"
